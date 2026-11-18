@@ -74,7 +74,7 @@ constexpr float kMinClosingSpeed = 0.25f;  // world units per frame: slower is n
 constexpr float kAboveMaxUnits = 80.0f;    // enemies higher than a full jump are out of reach
 constexpr float kBelowMaxUnits = 96.0f;    // and lower than this are not Mario's business yet
 constexpr float kLookAheadTiles = 10.0f;
-// Falling: lined up when within this many units sideways, and the enemy within this many tiles below.
+// Falling: right over it within this many units sideways, and the enemy within this many tiles below.
 constexpr float kStompAlignUnits = 12.0f;
 constexpr float kStompBelowTiles = 5.0f;
 
@@ -93,15 +93,23 @@ std::uint32_t g_traceActor = 0;
 
 std::uint32_t g_stompCued = 0;  // the enemy of the last stomp/danger cue in this fall
 
-// The countdown: three ticks a beat apart, then the accent on the take-off frame, for the one
-// enemy whose take-off comes first. A rhythm lets the player jump on the beat instead of
-// reacting to a single sound (a reaction costs about 0.2 s; a beat can be met on time).
-constexpr float kBeatFrames = 15.0f;  // 0.25 s
-constexpr int kBeats = 4;             // 3 ticks + the accent
-std::uint32_t g_countActor = 0;
+// The approach sensor: like a parking sensor, the nearest enemy coming at Mario beeps faster as
+// the moment to jump gets closer (a sighted player watches it come and judges the moment); the
+// chord sounds on the ideal take-off frame. It starts this many frames ahead of that moment.
+constexpr float kSensorStartFrames = 60.0f;
+constexpr float kSensorMinSec = 0.08f;
+constexpr float kSensorSecPerFrame = 0.0075f;  // 60 frames ahead: 0.53 s between beeps
+float g_sensorTimer = 0.0f;
+std::uint32_t g_accentActor = 0;  // the enemy whose chord has sounded on this approach
 constexpr float kNoTakeOff = 1.0e9f;
 float g_nextTakeOff = kNoTakeOff;  // frames until the first enemy jump, for other cues to yield
-int g_beatsDone = 0;
+
+// In the air: an aiming beep from the side the enemy below is on, faster the closer Mario is to
+// being right over it, so a jump that is too long or too short can be steered back.
+constexpr float kAimRangeUnits = 3.0f * 16.0f;
+constexpr float kAimMinSec = 0.07f;
+constexpr float kAimSecPerUnit = 0.008f;
+float g_aimTimer = 0.0f;
 
 enum class JumpKind { Tap, High, Over };
 
@@ -177,8 +185,9 @@ void PlayAccent(const Candidate& c) {
     }
 }
 
-void TickGround(const game::PlayerState& p, const std::vector<NearbyActor>& near) {
+void TickApproach(const game::PlayerState& p, const std::vector<NearbyActor>& near, float frameSec) {
     g_nextTakeOff = kNoTakeOff;
+    g_sensorTimer -= frameSec;
     Candidate best;
     bool have = false;
     for (const NearbyActor& n : near) {
@@ -190,40 +199,33 @@ void TickGround(const game::PlayerState& p, const std::vector<NearbyActor>& near
         }
     }
     if (!have) {
-        g_countActor = 0;
-        g_beatsDone = 0;
+        g_accentActor = 0;
         return;
     }
     g_nextTakeOff = best.takeOff;
-    // Beats due by now: one per kBeatFrames before the take-off, the last on it.
-    int due = 0;
-    for (int i = 0; i < kBeats; ++i) {
-        if (best.takeOff <= kBeatFrames * static_cast<float>(kBeats - 1 - i)) due = i + 1;
-    }
-    if (!p.onGround) due = std::min(due, kBeats - 1);
-    if (best.actor->info.actor != g_countActor) {
-        // A new enemy mid-countdown: start silently from where it is, so ticks never bunch up;
-        // the accent always sounds.
-        g_countActor = best.actor->info.actor;
-        g_beatsDone = std::min(due, kBeats - 1);
-        if (due < kBeats) return;
-    }
-    if (due <= g_beatsDone) return;
-    g_beatsDone = due;
-    if (due < kBeats) {
-        audio::cues::Play(audio::cues::CountTick(best.side * 0.7f, due));
+    const std::uint32_t actor = best.actor->info.actor;
+    const float pan = best.side * 0.7f;
+    // The chord on the take-off frame (in the air it waits for the landing).
+    if (best.takeOff <= 0.0f) {
+        if (p.onGround && g_accentActor != actor) {
+            g_accentActor = actor;
+            PlayAccent(best);
+            g_traceActor = actor;
+            g_traceFrames = kTraceFrames;
+            if (LogCombat()) {
+                RT_LOGF(RT_TAG_A11Y, "combat: jump cue profile=%u kind=%d top=%.1f meet=%.1f takeoff=%.1f\n",
+                        best.actor->info.profile, static_cast<int>(best.kind), best.top, best.meet, best.takeOff);
+            }
+        }
         return;
     }
-    PlayAccent(best);
-    g_traceActor = g_countActor;
-    g_traceFrames = kTraceFrames;
-    if (LogCombat()) {
-        RT_LOGF(RT_TAG_A11Y, "combat: jump cue profile=%u kind=%d top=%.1f meet=%.1f takeoff=%.1f\n",
-                best.actor->info.profile, static_cast<int>(best.kind), best.top, best.meet, best.takeOff);
-    }
+    if (best.takeOff > kSensorStartFrames || g_sensorTimer > 0.0f) return;
+    audio::cues::Play(audio::cues::ApproachBeep(pan, best.kind == JumpKind::Over));
+    g_sensorTimer = std::max(kSensorMinSec, best.takeOff * kSensorSecPerFrame);
 }
 
-void TickAir(const game::PlayerState& p, const std::vector<NearbyActor>& near) {
+void TickAir(const game::PlayerState& p, const std::vector<NearbyActor>& near, float frameSec) {
+    g_aimTimer -= frameSec;
     if (p.speed.y >= 0.0f) {  // still rising: nothing to line up yet
         g_stompCued = 0;
         return;
@@ -232,20 +234,38 @@ void TickAir(const game::PlayerState& p, const std::vector<NearbyActor>& near) {
         if (!IsHostile(n.category)) continue;
         const float below = (p.pos.y - n.info.center.y) / kTile;
         const float sideways = n.info.center.x - p.pos.x;
-        if (below <= 0.0f || below > kStompBelowTiles || std::fabs(sideways) > kStompAlignUnits) continue;
-        if (g_stompCued == n.info.actor) return;
-        g_stompCued = n.info.actor;
-        if (LogCombat()) RT_LOGF(RT_TAG_A11Y, "combat: below cue profile=%u below=%.1f side=%.1f\n", n.info.profile, below, sideways);
-        const float pan = std::fmax(-1.0f, std::fmin(1.0f, sideways / (2.0f * kTile)));
-        audio::cues::Play(n.category == ActorCategory::Enemy ? audio::cues::StompTarget(pan)
-                                                             : audio::cues::DangerBelow(pan));
+        if (below <= 0.0f || below > kStompBelowTiles || std::fabs(sideways) > kAimRangeUnits) continue;
+        const bool danger = n.category != ActorCategory::Enemy;
+        const float pan = std::fmax(-1.0f, std::fmin(1.0f, sideways / kAimRangeUnits));
+        if (std::fabs(sideways) <= kStompAlignUnits) {
+            // Right over it: the ding for a stomp; for something that hurts, the buzz repeats.
+            if (danger) {
+                if (g_aimTimer <= 0.0f) {
+                    audio::cues::Play(audio::cues::DangerBelow(pan));
+                    g_aimTimer = audio::cues::kDangerBelowRepeatSec;
+                }
+            } else if (g_stompCued != n.info.actor) {
+                g_stompCued = n.info.actor;
+                audio::cues::Play(audio::cues::StompTarget(pan));
+                if (LogCombat()) {
+                    RT_LOGF(RT_TAG_A11Y, "combat: below cue profile=%u below=%.1f side=%.1f\n", n.info.profile,
+                            below, sideways);
+                }
+            }
+            return;
+        }
+        // Not over it yet: the aiming beep from its side (steer towards it, or away if it hurts).
+        if (g_aimTimer <= 0.0f) {
+            audio::cues::Play(audio::cues::AimBeep(pan, danger));
+            g_aimTimer = kAimMinSec + (std::fabs(sideways) - kStompAlignUnits) * kAimSecPerUnit;
+        }
         return;
     }
 }
 
 }  // namespace
 
-void Tick(const game::PlayerState& p) {
+void Tick(const game::PlayerState& p, float frameSec) {
     if (!config::Get().objectCues) return;
     const std::vector<NearbyActor> near = Scan(p, kLookAheadTiles, kLookAheadTiles);
     if (g_traceFrames > 0 && LogCombat()) {
@@ -262,13 +282,13 @@ void Tick(const game::PlayerState& p) {
         RT_LOGF(RT_TAG_A11Y, "combat trace: mario %.1f,%.1f v %.2f,%.2f ground %d | actor %u %.1f,%.1f\n", p.pos.x,
                 p.pos.y, p.speed.x, p.speed.y, p.onGround ? 1 : 0, prof, ex, ey);
     }
-    // The countdown keeps running in the air (after a stomp bounce the next enemy is often
-    // already close); its accent waits for the landing, when a jump is possible again.
-    TickGround(p, near);
+    // The approach sensor keeps running in the air (after a stomp bounce the next enemy is often
+    // already close); its chord waits for the landing, when a jump is possible again.
+    TickApproach(p, near, frameSec);
     if (p.onGround) {
         g_stompCued = 0;
     } else {
-        TickAir(p, near);
+        TickAir(p, near, frameSec);
     }
 }
 
@@ -280,8 +300,9 @@ void TraceNearest() {
 }
 
 void Reset() {
-    g_countActor = 0;
-    g_beatsDone = 0;
+    g_accentActor = 0;
+    g_sensorTimer = g_aimTimer = 0.0f;
+    g_nextTakeOff = kNoTakeOff;
     g_stompCued = 0;
 }
 

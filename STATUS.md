@@ -27,13 +27,18 @@ line logged); **not yet played by a blind player.**
 | World map: world, node, cleared, "no path" | done | path directions are not listed |
 | Terrain cues (Kirby-style): wall hums by height + spoken height, ceiling, edges, platform above, air hum / pit / landing | wip | needs a listening test and tuning |
 | Enemy radar (signature per kind, stompable vs dangerous, boss drum), items, under-item bell, goal, pipes | wip | needs a listening test |
-| Combat timing: countdown (3 clicks + chord) to jump now / high / over, stomp and danger-below while falling | wip | arc-timed; autopilot hits the first ? block, takes the mushroom path, stomps ~10 enemies in 1-1, dies around x~2786 (steps + goomba above) |
-| ? blocks (tile type bit 0x4) and items named on sight | wip | only "seta" (EN_ITEM param low byte 0x02) is identified |
+| Combat timing: approach sensor (pips speeding up, chord on the take-off frame), in-air aiming pips + stomp ding / danger buzz | wip | arc-timed; autopilot hits the first ? block, takes the mushroom path, stomps ~10 enemies in 1-1, dies around x~2786 (steps + goomba above) |
+| ? blocks (tile type bit 0x4), coins (bit 0x8000), items named on sight with heading | wip | EN_ITEM param low byte 0x02 = coin popped from a block (inferred from its motion); the mushroom's value is unknown |
 | Tile camera (I J K L, U, O) | wip | untested by a player |
 | F2-F4 info (status, progress, nearby with pipes) | done | |
 | Sound guide (Shift+F9): categories, Page Up/Down, Home/End, F9 replay | done | |
 | Toad-house minigames, bosses' patterns, Super Guide | todo | |
 | Game's own sound effects as cues | done | pipes, items; labels resolved by the sound archive (`game/game_sound.*`). The map "no path" sound was dropped at the player's request (speech only) |
+
+## Design rule (from the player, 2026-11-18)
+
+Accessibility, not assists: no invincibility, auto-stomp, item magnets or slow-down. The cues must
+give the information a sighted player has (where, how far, how fast) and leave the challenge.
 
 ## Code map
 
@@ -53,6 +58,10 @@ The user's listening test of the new version (words for edges/platforms/items, w
 jump countdown). Their feedback so far (2026-11-18): synthesized sounds were too alike, mushroom /
 hole / platform sounds unclear; they asked for short words plus game sounds, and wind for holes.
 Then the autopilot death around x~2786 in 1-1, and "escalón" being said too often on stairs.
+Player report after trying it (2026-11-18): jumps on goombas land too long or too short, the
+mushroom's direction was unknown, no coin sound; addressed with the in-air aiming pips, item
+heading speech (speed from position history, EN_ITEM's mPosDelta stays 0) and coin tings. The
+heading was not yet heard in a run: the only 1-1 item the autopilot reached was a coin.
 
 ## Review
 

@@ -247,6 +247,46 @@ inline Composite Boss(float pan, float tilesAbove) {
 }
 inline float BossInterval(float tiles) { return tiles < 4.0f ? 0.8f : tiles < 8.0f ? 1.0f : 1.4f; }
 
+// The approach sensor: a short pip from the enemy's side, repeated faster as the moment to jump
+// nears (a buzzier pip for a dangerous one).
+inline Composite ApproachBeep(float pan, bool danger) {
+    CueSpec c = Tone(danger ? Waveform::Saw : Waveform::Square, 660.0f, 660.0f, 0.03f, 0.2f, pan);
+    c.lowpassHz = 2200.0f;
+    return {c};
+}
+// In the air, not yet over the enemy below: a high blip from its side.
+inline Composite AimBeep(float pan, bool danger) {
+    return {Tone(danger ? Waveform::Saw : Waveform::Sine, 1320.0f, 1320.0f, 0.025f, 0.22f, pan)};
+}
+inline constexpr float kDangerBelowRepeatSec = 0.3f;
+// A demo of the sensor speeding up, for the sound guide.
+inline Composite ApproachDemo(Composite accent) {
+    Composite c;
+    float t = 0.0f;
+    for (float gap : {0.45f, 0.35f, 0.26f, 0.18f, 0.12f, 0.09f}) {
+        Composite b = ApproachBeep(0.5f, false);
+        for (CueSpec& x : b) x.delaySec = t;
+        Append(c, b);
+        t += gap;
+    }
+    for (CueSpec& a : accent) a.delaySec += t;
+    Append(c, accent);
+    return c;
+}
+inline Composite AimDemo() {
+    Composite c;
+    float t = 0.0f;
+    for (float gap : {0.3f, 0.22f, 0.15f, 0.1f}) {
+        Composite b = AimBeep(0.6f, false);
+        for (CueSpec& x : b) x.delaySec = t;
+        Append(c, b);
+        t += gap;
+    }
+    Composite d = {Tone(Waveform::Sine, 1760.0f, 2349.0f, 0.07f, 0.30f, 0.0f, t)};
+    Append(c, d);
+    return c;
+}
+
 // The countdown to a jump: three short ticks, each a step higher (beat 1-3), a quarter second
 // apart, then one of the jump cues below on the beat where Mario should leave the ground.
 inline Composite CountTick(float pan, int beat) {
@@ -308,6 +348,13 @@ inline Composite BlockBeacon(float pan, float tilesUp) {
     return {Tone(Waveform::Square, f, f, 0.05f, 0.12f, pan), Tone(Waveform::Square, g, g, 0.08f, 0.12f, pan, 0.06f)};
 }
 inline constexpr float kBlockBeaconSec = 1.6f;
+// A coin nearby: a short metallic ting (two inharmonic partials), higher the higher it is.
+inline Composite CoinTing(float pan, float tilesUp) {
+    const float f = 2400.0f * Semitones(std::clamp(tilesUp, -2.0f, 8.0f));
+    return {Tone(Waveform::Sine, f, f, 0.05f, 0.14f, pan), Tone(Waveform::Sine, f * 1.47f, f * 1.47f, 0.035f, 0.08f, pan)};
+}
+inline constexpr float kCoinNearSec = 0.4f;
+inline constexpr float kCoinFarSec = 0.9f;
 // Right under a ? block: the same chirp, louder and twice, centred: stop and jump to hit it.
 inline Composite UnderBlock(float tilesUp) {
     Composite c = BlockBeacon(0.0f, tilesUp);

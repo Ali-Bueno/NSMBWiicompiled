@@ -207,7 +207,7 @@ void TickImpl() {
         level::terrain::Tick(player, frameSec);
         level::TickCues(player, frameSec);
         level::entrances::TickCue(player, frameSec);
-        level::combat::Tick(player);
+        level::combat::Tick(player, frameSec);
         level::blocks::Tick(player, frameSec);
         level::camera::Tick(frameSec);
     } else {

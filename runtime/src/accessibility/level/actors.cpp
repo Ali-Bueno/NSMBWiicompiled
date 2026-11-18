@@ -1,9 +1,12 @@
 #include "accessibility/level/actors.h"
+
+#include <aurora/env.hpp>
 #include "accessibility/a11y_log.h"
 #include "accessibility/speech.h"
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 
 #include "accessibility/a11y_config.h"
@@ -62,6 +65,21 @@ std::vector<NearbyActor> g_cached;
 int g_framesSinceScan = kScanEveryFrames;
 std::uint32_t g_underItem = 0;  // the item Mario was last lined up under
 std::set<std::uint32_t> g_announced;  // items already named
+std::map<std::uint32_t, int> g_heading;  // the way each moving item was last said to go
+std::map<std::uint32_t, float> g_itemX, g_itemVx;  // items' x at the last scan, and their speed
+
+bool LogItems() {
+    static const bool on = [] {
+        const char* v = AURORA_ENV("NSMBW_A11Y_LOG_ITEMS");
+        return v != nullptr && *v == '1';
+    }();
+    return on;
+}
+
+float ItemSpeed(std::uint32_t actor) {
+    const auto it = g_itemVx.find(actor);
+    return it == g_itemVx.end() ? 0.0f : it->second;
+}
 
 int Round(float v) { return static_cast<int>(std::lround(v)); }
 
@@ -159,11 +177,12 @@ void TickEnemyRadar(const std::vector<NearbyActor>& near) {
 }
 
 // The spoken name of an item. EN_ITEM's kind is the low byte of its mParam; only the values seen
-// in the logs are named ("item: profile=60 param=..." lines): 0x02 came out of 1-1's first
-// ? block for small Mario, a mushroom. Others say "item" until they are identified.
+// in the logs are named ("item: profile=60 param=..." lines). 0x02 came out of 1-1's first
+// ? block and moved like a coin (NSMBW_A11Y_LOG_ITEMS: up 15 units, down, gone in ~0.5 s, no
+// sideways motion), so it is called a coin. Others say "item" until they are identified.
 std::string ItemName(const NearbyActor& n) {
-    constexpr std::uint32_t kItemMushroom = 0x02;
-    if (n.info.profile == kProfileItem && (n.info.param & 0xFFu) == kItemMushroom) return loc::Get("item_mushroom");
+    constexpr std::uint32_t kItemCoin = 0x02;
+    if (n.info.profile == kProfileItem && (n.info.param & 0xFFu) == kItemCoin) return loc::Get("item_coin");
     return n.phraseKey.empty() ? loc::Get("kind_item") : loc::Get(n.phraseKey);
 }
 
@@ -191,9 +210,21 @@ void TickItems(const game::PlayerState& player, const std::vector<NearbyActor>& 
             RT_LOGF(RT_TAG_A11Y, "item: profile=%u param=0x%08X at %.1f,%.1f\n", n.info.profile,
                     n.info.param, n.dx, n.dy);
         }
+        // A moving item (a mushroom sliding away) says which way it goes, again when it turns
+        // round, and ticks fast so it can be chased.
+        const float vx = ItemSpeed(n.info.actor);
+        if (n.category == ActorCategory::Item && std::fabs(vx) > kMovingUnits) {
+            const int heading = vx > 0.0f ? 1 : -1;
+            int& said = g_heading[n.info.actor];
+            if (said != heading) {
+                said = heading;
+                speech::Say(loc::Format("item_heading", {{"name", ItemName(n)},
+                                                         {"dir", loc::Get(heading > 0 ? "dir_right" : "dir_left")}}),
+                            false);
+            }
+        }
         if (g_timers.item > 0.0f) continue;
-        // A moving item (a mushroom sliding away) ticks fast so it can be chased.
-        if (std::fabs(n.info.delta.x) > kMovingUnits) {
+        if (std::fabs(vx) > kMovingUnits) {
             cues::Play(cues::Item(cues::PanFor(n.dx, kItemRangeX), n.dy, 1.0f));
             g_timers.item = cues::kMovingItemIntervalSec;
             continue;
@@ -216,6 +247,19 @@ void TickCues(const game::PlayerState& player, float frameSec) {
     if (++g_framesSinceScan >= kScanEveryFrames) {
         g_framesSinceScan = 0;
         g_cached = Scan(player, kListRangeX, kListRangeY);
+        // Items' speeds from their positions between scans (their mPosDelta stays zero).
+        std::map<std::uint32_t, float> seen;
+        for (const NearbyActor& n : g_cached) {
+            if (n.category != ActorCategory::Item) continue;
+            const auto last = g_itemX.find(n.info.actor);
+            g_itemVx[n.info.actor] = last == g_itemX.end() ? 0.0f : (n.info.pos.x - last->second) / kScanEveryFrames;
+            seen[n.info.actor] = n.info.pos.x;
+            if (LogItems()) {
+                RT_LOGF(RT_TAG_A11Y, "item track: %.1f,%.1f vx %.2f dx %.1f\n", n.info.pos.x, n.info.pos.y,
+                        g_itemVx[n.info.actor], n.dx);
+            }
+        }
+        g_itemX.swap(seen);
     }
     g_timers.enemyPass -= frameSec;
     g_timers.boss -= frameSec;
@@ -241,6 +285,9 @@ void StopCues() {
     g_timers = CueTimers{};
     g_underItem = 0;
     g_announced.clear();
+    g_heading.clear();
+    g_itemX.clear();
+    g_itemVx.clear();
 }
 
 std::string DescribeNearby(const game::PlayerState& player) {

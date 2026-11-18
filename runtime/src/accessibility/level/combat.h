@@ -8,7 +8,7 @@
 // while falling, a ding when Mario is lined up over a stompable enemy or a buzz over a harmful one.
 namespace a11y::level::combat {
 
-void Tick(const game::PlayerState& player);
+void Tick(const game::PlayerState& player, float frameSec);
 void Reset();
 // Debug (NSMBW_A11Y_LOG_COMBAT): trace Mario and the nearest actor for a while.
 void TraceNearest();

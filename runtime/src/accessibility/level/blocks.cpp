@@ -18,6 +18,8 @@ namespace cues = audio::cues;
 // ? blocks over the first goomba, 0x10 at the bricks beside them, 0x8000 along the coin arcs.
 // The meaning of each bit is inferred from those positions, not from the game's source.
 constexpr std::uint32_t kTypeQuestion = 0x4;
+constexpr std::uint32_t kTypeCoin = 0x8000;
+constexpr int kCoinRowsBelow = 1;  // coins a tile under Mario's feet still count (a dip, a ledge)
 
 constexpr int kScanColumns = 6;          // each side of Mario
 constexpr int kScanRows = 5;             // tiles above his feet
@@ -37,9 +39,32 @@ struct Found {
 
 int g_frames = kScanEveryFrames;
 Found g_nearest;
+Found g_coin;
+float g_coinTimer = 0.0f;
 float g_beaconTimer = 0.0f;
 float g_underTimer = 0.0f;
 bool g_wasUnder = false;
+
+// The nearest coin tile around Mario.
+Found ScanCoins(const game::PlayerState& p) {
+    Found best;
+    float bestDist = 0.0f;
+    const float col0 = std::floor(p.pos.x / kTile);
+    for (int c = -kScanColumns; c <= kScanColumns; ++c) {
+        const float x = (col0 + static_cast<float>(c)) * kTile + kTile * 0.5f;
+        for (int r = -kCoinRowsBelow; r <= kScanRows; ++r) {
+            const float y = p.pos.y + kTile * (static_cast<float>(r) + 0.5f);
+            if ((game::UnitType(x, y, p.layer) & kTypeCoin) == 0) continue;
+            const float dx = (x - p.pos.x) / kTile;
+            const float dist = std::fabs(dx) + std::fabs(static_cast<float>(r));
+            if (!best.any || dist < bestDist) {
+                best = {true, x, y, dx, r};
+                bestDist = dist;
+            }
+        }
+    }
+    return best;
+}
 
 Found Scan(const game::PlayerState& p) {
     Found best;
@@ -69,6 +94,15 @@ void Tick(const game::PlayerState& p, float frameSec) {
     if (++g_frames >= kScanEveryFrames) {
         g_frames = 0;
         g_nearest = Scan(p);
+        g_coin = ScanCoins(p);
+    }
+    // Coins: a metallic ting from the nearest one's side and height, faster when close.
+    g_coinTimer -= frameSec;
+    if (g_coin.any && g_coinTimer <= 0.0f) {
+        const float dx = (g_coin.x - p.pos.x) / kTile;
+        cues::Play(cues::CoinTing(cues::PanFor(dx, static_cast<float>(kScanColumns)), static_cast<float>(g_coin.up)));
+        g_coinTimer = std::fabs(dx) + std::fabs(static_cast<float>(g_coin.up)) < 3.0f ? cues::kCoinNearSec
+                                                                                         : cues::kCoinFarSec;
     }
     g_beaconTimer -= frameSec;
     g_underTimer -= frameSec;
@@ -109,6 +143,8 @@ void Tick(const game::PlayerState& p, float frameSec) {
 void Reset() {
     g_frames = kScanEveryFrames;
     g_nearest = Found{};
+    g_coin = Found{};
+    g_coinTimer = 0.0f;
     g_beaconTimer = g_underTimer = 0.0f;
     g_wasUnder = false;
 }

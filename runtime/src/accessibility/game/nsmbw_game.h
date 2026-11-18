@@ -86,6 +86,7 @@ struct ActorInfo {
     std::uint8_t layer = 0;
     Vec3 pos;
     Vec3 center;  // pos + mCenterOffs
+    Vec3 delta;   // mPosDelta: how far it moved last frame
     bool visible = false;
 };
 bool ReadActor(std::uint32_t actor, ActorInfo& out);
@@ -96,6 +97,8 @@ bool GroundBelow(float x, float y, std::uint8_t layer, float& height);
 // Horizontal sweep from (x0, y) to (x1, y): true and the wall's x when it hits.
 bool WallBetween(float x0, float x1, float y, std::uint8_t layer, float& wallX);
 bool CeilingAbove(float x, float y, std::uint8_t layer, float& height);
+// Whether the point (x, y) is inside solid background (dBc_c::checkBg).
+bool SolidAt(float x, float y, std::uint8_t layer);
 std::uint32_t UnitKind(float x, float y, std::uint8_t layer);
 std::uint32_t UnitType(float x, float y, std::uint8_t layer);
 // WATER_TYPE_e: 0 none, 1 water, 2 bubble, 3 lava, 4 poison.

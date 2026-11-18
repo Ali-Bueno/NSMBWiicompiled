@@ -77,6 +77,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+extern "C" uint32_t NsmbwA11yAutopilotBits(); // runtime/src/accessibility/test_autopilot.cpp
 
 extern "C" void SDL_PumpEvents();
 extern "C" void NsmbwSkipBootScreensApply();
@@ -247,6 +248,7 @@ void SampleKeyboardForFrame() {
         }
         if (chan == 0) {
             hold |= g_nsmbwSelfTestPressBits;
+            hold |= NsmbwA11yAutopilotBits(); // test only, NSMBW_A11Y_AUTOPILOT (accessibility)
             g_nsmbwSelfTestPressBits = 0;
         }
         hold = NsmbwMovieSkipFilterInput(chan, hold); // - skips the opening / a hint movie

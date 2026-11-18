@@ -36,7 +36,8 @@ be played without seeing the screen. Speech goes through [PRISM](https://github.
 | F5 / F6 | terrain sounds / object sounds on or off |
 | F7 / F8 | sound volume down / up |
 | F9 | repeat the last thing said |
-| Shift+F9 | sound guide: each sound after its name |
+| Shift+F9 | sound guide by category: Page Down / Page Up change sound, End / Home change category, F9 replays |
+| I J K L, U, O | tile camera: move a cursor a tile at a time (sounds the tile, names what is there), U describes it, O returns to Mario |
 
 The game's own controls are unchanged (keyboard: arrows, Z or Space jump, X run, C spin; in menus
 Enter or Z confirm and X or Backspace go back; Esc pauses a level and opens the map menu; F10
@@ -62,6 +63,6 @@ Build as in [`docs/BUILDING.md`](../BUILDING.md); this checkout also needs:
 Test runs: `projects/nsmbw/tools/run_nsmbw.ps1` with `NSMBW_A11Y_SILENT=1` (log every spoken line
 as `[accessibility] say: ...` instead of speaking), `NSMBW_A11Y_LOG_MENU=1` (every text of a new
 menu), `NSMBW_A11Y_LOG_PLAYER=1` (player state, terrain probes, actors, entrances, F3/F4 output),
-`NSMBW_A11Y_LOG_TERRAIN=1` (edge cues). `NSMBW_TEST_INPUT` scripts presses (see `CLAUDE.md`).
+`NSMBW_A11Y_LOG_TERRAIN=1` (edge cues), `NSMBW_A11Y_LOG_COMBAT=1` (jump cues and a per-frame trace after each), `NSMBW_A11Y_LOG_MAP=1` (map presses, "no path"), `NSMBW_A11Y_AUTOPILOT=1` (plays a level from the cues alone). `NSMBW_TEST_INPUT` scripts presses (see `CLAUDE.md`).
 
 Offsets and where each came from: [`nsmbw-structures.md`](nsmbw-structures.md).

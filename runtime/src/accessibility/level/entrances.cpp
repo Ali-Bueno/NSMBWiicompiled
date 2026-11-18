@@ -123,8 +123,7 @@ void TickCue(const game::PlayerState& player, float frameSec) {
         g_cueTimer = audio::cues::kGamePipeIntervalSec;
         return;
     }
-    audio::CueService::Instance().PlayOneShot(audio::CueChannel::Pipe,
-                                              audio::cues::Pipe(audio::cues::PanFor(dx, kCueRangeTiles), dy));
+    audio::cues::Play(audio::cues::Pipe(audio::cues::PanFor(dx, kCueRangeTiles), dy));
 }
 
 bool GoalFromCourseData(Vec3& goal) {

@@ -31,6 +31,7 @@ constexpr std::uint8_t kGameModeTitleReplay = 3;
 constexpr std::uint32_t kProfName = 0x08;   // fBase_c: mUniqueID 0, mParam 4, mProfName 8; vtable at 0x60
 constexpr std::uint32_t kGroupType = 0x0E;
 constexpr std::uint32_t kPos = 0xAC;
+constexpr std::uint32_t kPosDelta = 0xC4;
 constexpr std::uint32_t kCenterOffs = 0xD0;
 constexpr std::uint32_t kSpeed = 0xE8;
 constexpr std::uint32_t kVisible = 0x124;
@@ -60,6 +61,10 @@ constexpr int kStatusBitsPerWord = 32;
 constexpr std::uint32_t kLineKind = 1;
 constexpr std::uint32_t kAnyActor = static_cast<std::uint32_t>(-1);
 constexpr int kStateNameMax = 48;
+// checkBg's extra arguments as the shell and ice actors pass them to test a point for solid
+// ground (d_a_en_shell.cpp:476, d_a_ice.cpp:416).
+constexpr std::uint32_t kPointLineKind = 3;
+constexpr std::uint32_t kPointUnitMask = 0x819;
 
 // A z depth inside the playfield for query vectors (actors use 5500 for effects, but the
 // collision ignores z).
@@ -207,6 +212,7 @@ bool ReadActor(std::uint32_t actor, ActorInfo& out) {
     Vec3 offs;
     TryVec3(actor + kCenterOffs, offs);
     out.center = {out.pos.x + offs.x, out.pos.y + offs.y, out.pos.z};
+    TryVec3(actor + kPosDelta, out.delta);
     out.actor = actor;
     TryU16(actor + kProfName, out.profile);
     TryU8(actor + kGroupType, out.group);
@@ -262,6 +268,16 @@ bool CeilingAbove(float x, float y, std::uint8_t layer, float& height) {
     const std::uint32_t hit = call.Invoke<NSMBW_VA(0x80075CA0u)>() & 0xFFu;  // dBc_c::checkTenjou
     height = call.ReadFloat(out);
     return hit != 0;
+}
+
+bool SolidAt(float x, float y, std::uint8_t layer) {
+    GuestCall call;
+    call.Fpr(1, x);
+    call.Fpr(2, y);
+    call.Gpr(3, layer);
+    call.Gpr(4, kPointLineKind);
+    call.Gpr(5, kPointUnitMask);
+    return (call.Invoke<NSMBW_VA(0x800709C0u)>() & 0xFFu) != 0;  // dBc_c::checkBg
 }
 
 std::uint32_t UnitKind(float x, float y, std::uint8_t layer) {

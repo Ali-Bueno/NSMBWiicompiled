@@ -1,45 +1,72 @@
 #include "accessibility/level/terrain.h"
 
 #include <cmath>
+#include <string>
 
 #include <aurora/env.hpp>
 
 #include "accessibility/a11y_config.h"
 #include "accessibility/a11y_log.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/localization.h"
+#include "accessibility/speech.h"
+#include "accessibility/test_autopilot.h"
 
 namespace a11y::level::terrain {
 namespace {
 
 using game::kTile;
+namespace cues = audio::cues;
 
 enum class Edge { None, StepUp, Drop, Pit, Hazard };
 
-// Geometry thresholds, in tiles.
-constexpr float kProbeAboveFeet = 2.5f;   // ground probes start this high: finds steps up to 2 tiles
-constexpr float kWallProbeHeight = 0.5f;  // walls are swept through the lowest body tile
+// Geometry, in tiles unless noted.
+constexpr float kProbeAboveFeet = 2.5f;    // ground probes ahead start this high: finds steps up to 2 tiles
+constexpr float kBodyRowLow = 6.0f;        // world units above the feet: the walls Mario walks into
+constexpr float kBodyRowHigh = 14.0f;
 constexpr float kBodyHalfWidth = 0.5f;
 constexpr float kStepUpTiles = 0.9f;
 constexpr float kDropTiles = 1.5f;
-constexpr float kPitTiles = 8.0f;         // deeper than this reads as a pit, not a drop
-constexpr float kWallBehindTiles = 2.0f;
-constexpr float kAirToneMinTiles = 0.75f; // below this the landing is immediate: no tone
-constexpr float kMovingSpeed = 0.3f;      // world units per frame: slower counts as standing
-// Distances (in columns) at which an edge already announced is announced again.
-constexpr int kUrgentColumns = 2;
-// WATER_TYPE_e values that hurt (d_bc.hpp): lava and poison.
-constexpr int kWaterLava = 3;
+constexpr float kPitTiles = 8.0f;          // deeper than this reads as a pit, not a drop
+constexpr int kWallHeightScan = 13;        // rows climbed to find the top of a wall
+constexpr float kWallHeightUnknown = 99.0f;
+constexpr float kWallInsideUnits = 4.0f;   // how far into the wall column its height is measured
+constexpr float kMovingSpeed = 0.3f;       // world units per frame: slower counts as standing
+constexpr float kPushSpeed = 0.1f;         // at most this fast while pushing into a wall
+constexpr int kUrgentColumns = 2;          // an announced edge is announced again this close
+constexpr int kWaterLava = 3;              // WATER_TYPE_e (d_bc.hpp)
 constexpr int kWaterPoison = 4;
 constexpr float kHazardProbeDepth = 3.0f;
-constexpr float kCeilingProbeTiles = 0.25f;  // ceilings are looked for from just above the feet
-constexpr float kCeilingMargin = 1.0f;       // world units below a ceiling a ground probe starts
+constexpr float kCeilingProbeTiles = 0.25f;
+constexpr float kCeilingMargin = 1.0f;     // world units below a ceiling a ground probe starts
+// Air: Kirby's mod waits 100 ms before calling a short hop "airborne" and re-snaps the hum's step
+// only past 0.6 tiles of change, so the pitch can be counted rather than sliding.
+constexpr float kAirConfirmSec = 0.1f;
+constexpr float kStepHysteresis = 0.6f;
+constexpr float kPlatformUnderRise = 0.6f;
+// Platforms above: looked for up to this many tiles over Mario's head, from his own column.
+constexpr float kPlatformAboveMaxTiles = 6.0f;
+constexpr float kPlatformAboveMinTiles = 1.5f;
+// A spoken wall height is repeated for the same wall only after this long.
+constexpr float kWallSpeechRepeatSec = 6.0f;
 
 struct State {
-    float wallTimer[2] = {};  // 0 left, 1 right
+    float airSec = 0.0f;
+    bool wasAir = false;
+    bool lastPit = false;
+    float lastGroundY = 0.0f;
+    bool haveLastGround = false;
+    int groundStep = -1;
+    float pitTimer = 0.0f;
     Edge lastEdge = Edge::None;
     int lastEdgeColumn = 0;
-    float noGroundTimer = 0.0f;
-    bool airTone = false;
+    float knockTimer = 0.0f;
+    int spokenWallColumn = 0x7FFFFFFF;
+    float spokenWallTimer = 0.0f;
+    float aboveTimer = 0.0f;
+    int lastAboveUp = 0;
+    float wallHeightCache[2] = {-1.0f, -1.0f};
+    float wallXCache[2] = {0.0f, 0.0f};
 };
 State g;
 
@@ -53,28 +80,102 @@ bool LogTerrain() {
 
 bool IsHazardWater(int type) { return type == kWaterLava || type == kWaterPoison; }
 
-// Distance in tiles from the player's side to the first wall within `range` tiles, or -1.
-float WallDistance(const game::PlayerState& p, int side, float range) {
-    const float y = p.pos.y + kWallProbeHeight * kTile;
-    float wallX = 0.0f;
-    if (!game::WallBetween(p.pos.x, p.pos.x + side * range * kTile, y, p.layer, wallX)) return -1.0f;
-    return std::max(std::fabs(wallX - p.pos.x) / kTile - kBodyHalfWidth, 0.0f);
+// Distance in tiles from Mario's side to the first wall within `range` tiles (-1 if none), swept
+// through his two lowest body rows; `wallX` is where the wall face is.
+float WallDistance(const game::PlayerState& p, int side, float range, float& wallX) {
+    float best = -1.0f;
+    for (float row : {kBodyRowLow, kBodyRowHigh}) {
+        float x = 0.0f;
+        if (!game::WallBetween(p.pos.x, p.pos.x + side * range * kTile, p.pos.y + row, p.layer, x)) continue;
+        const float d = std::max(std::fabs(x - p.pos.x) / kTile - kBodyHalfWidth, 0.0f);
+        if (best < 0.0f || d < best) {
+            best = d;
+            wallX = x;
+        }
+    }
+    return best;
+}
+
+// Tiles from Mario's feet to the first gap of two free rows in the wall's column (Kirby's
+// wall_height), or kWallHeightUnknown when it goes higher than the scan.
+float WallHeight(const game::PlayerState& p, int side, float wallX) {
+    const float x = wallX + side * kWallInsideUnits;
+    bool below = !game::SolidAt(x, p.pos.y + kTile * 0.5f, p.layer);
+    for (int r = 1; r <= kWallHeightScan; ++r) {
+        const bool free = !game::SolidAt(x, p.pos.y + kTile * (r + 0.5f), p.layer);
+        if (below && free) return static_cast<float>(r - 1);
+        below = free;
+    }
+    return kWallHeightUnknown;
+}
+
+void SpeakWall(float height) {
+    std::string text;
+    if (height >= kWallHeightUnknown) {
+        text = loc::Get("wall_tall");
+    } else {
+        const std::string n = std::to_string(static_cast<int>(std::ceil(height - 0.05f)));
+        text = loc::Format(cues::WallKindFor(height) == cues::WallKind::Step ? "wall_step" : "wall_high", {{"n", n}});
+    }
+    speech::Say(text, false);
 }
 
 void TickWalls(const game::PlayerState& p, int ahead, float frameSec, float& aheadWall) {
-    auto& cues = audio::CueService::Instance();
+    auto& service = audio::CueService::Instance();
     aheadWall = -1.0f;
+    g.knockTimer -= frameSec;
+    g.spokenWallTimer -= frameSec;
     for (int i = 0; i < 2; ++i) {
         const int side = i == 0 ? -1 : 1;
-        const float range = side == ahead ? static_cast<float>(config::Get().scanTiles) : kWallBehindTiles;
-        const float d = WallDistance(p, side, range);
-        if (side == ahead) aheadWall = d;
-        g.wallTimer[i] -= frameSec;
-        if (d < 0.0f || g.wallTimer[i] > 0.0f) continue;
         const audio::CueChannel ch = side < 0 ? audio::CueChannel::WallLeft : audio::CueChannel::WallRight;
-        cues.PlayOneShot(ch, audio::cues::WallTick(side * 0.85f));
-        g.wallTimer[i] = audio::cues::WallTickInterval(d);
+        float wallX = 0.0f;
+        const float d = WallDistance(p, side, cues::kWallRangeTiles, wallX);
+        if (side == ahead) aheadWall = d;
+        if (d < 0.0f) {
+            service.Stop(ch);
+            g.wallHeightCache[i] = -1.0f;
+            continue;
+        }
+        if (g.wallHeightCache[i] < 0.0f || std::fabs(wallX - g.wallXCache[i]) > kTile * 0.5f) {
+            g.wallHeightCache[i] = WallHeight(p, side, wallX);
+            g.wallXCache[i] = wallX;
+        }
+        const float height = g.wallHeightCache[i];
+        const float closeness = (1.0f - d / cues::kWallRangeTiles) * (side == ahead ? 1.0f : cues::kWallBehindGain);
+        service.SetSustained(ch, cues::WallHum(cues::WallKindFor(height), closeness, side * 0.8f));
+
+        // Pushing into it: a knock, and once per wall its height in words.
+        const bool touching = side < 0 ? p.wallLeft : p.wallRight;
+        const std::uint32_t towards = side < 0 ? game::kScreenLeft : game::kScreenRight;
+        if (touching && (game::InputHold() & towards) != 0 && std::fabs(p.speed.x) < kPushSpeed && p.onGround) {
+            if (g.knockTimer <= 0.0f) {
+                cues::Play(cues::WallKnock(side * 0.8f));
+                autopilot::Note(autopilot::Cue::WallKnock);
+                g.knockTimer = cues::kWallKnockCooldownSec;
+            }
+            const int column = static_cast<int>(std::floor(wallX / kTile));
+            if (column != g.spokenWallColumn || g.spokenWallTimer <= 0.0f) {
+                g.spokenWallColumn = column;
+                g.spokenWallTimer = kWallSpeechRepeatSec;
+                SpeakWall(height);
+            }
+        }
     }
+}
+
+void TickCeiling(const game::PlayerState& p) {
+    auto& service = audio::CueService::Instance();
+    float ceiling = 0.0f;
+    if (!game::CeilingAbove(p.pos.x, p.pos.y + kTile * 0.5f, p.layer, ceiling)) {
+        service.Stop(audio::CueChannel::Ceiling);
+        return;
+    }
+    const float dist = (ceiling - p.pos.y) / kTile;
+    if (dist > cues::kCeilingRangeTiles + 1.0f || dist <= 0.0f) {
+        service.Stop(audio::CueChannel::Ceiling);
+        return;
+    }
+    service.SetSustained(audio::CueChannel::Ceiling, cues::CeilingHum(1.0f - (dist - 1.0f) / cues::kCeilingRangeTiles));
 }
 
 Edge ClassifyColumn(const game::PlayerState& p, float x) {
@@ -86,8 +187,7 @@ Edge ClassifyColumn(const game::PlayerState& p, float x) {
         start = ceiling - kCeilingMargin;
     }
     float h = 0.0f;
-    const bool ground = game::GroundBelow(x, start, p.layer, h);
-    if (!ground) {
+    if (!game::GroundBelow(x, start, p.layer, h)) {
         return IsHazardWater(game::WaterAt(x, p.pos.y - kHazardProbeDepth * kTile, p.layer)) ? Edge::Hazard : Edge::Pit;
     }
     const float delta = (h - p.pos.y) / kTile;
@@ -99,13 +199,12 @@ Edge ClassifyColumn(const game::PlayerState& p, float x) {
 }
 
 void PlayEdge(Edge e, int ahead) {
-    auto& cues = audio::CueService::Instance();
-    const float pan = ahead * 0.6f;
+    const float pan = ahead * 0.5f;
     switch (e) {
-        case Edge::Pit: cues.PlayOneShot(audio::CueChannel::Edge, audio::cues::Pit(pan)); break;
-        case Edge::Drop: cues.PlayOneShot(audio::CueChannel::Edge, audio::cues::Drop(pan)); break;
-        case Edge::StepUp: cues.PlayOneShot(audio::CueChannel::Edge, audio::cues::StepUp(pan)); break;
-        case Edge::Hazard: cues.PlayOneShot(audio::CueChannel::Hazard, audio::cues::Hazard(pan)); break;
+        case Edge::Pit: cues::Play(cues::EdgePit(pan)); break;
+        case Edge::Drop: cues::Play(cues::EdgeDrop(pan)); break;
+        case Edge::StepUp: cues::Play(cues::EdgeStep(pan)); break;
+        case Edge::Hazard: cues::Play(cues::EdgeHazard(pan)); break;
         case Edge::None: break;
     }
 }
@@ -115,7 +214,7 @@ void TickEdges(const game::PlayerState& p, int ahead, float aheadWall) {
     Edge found = Edge::None;
     int column = 0;
     for (int i = 1; i <= scan; ++i) {
-        if (aheadWall >= 0.0f && i > aheadWall + kBodyHalfWidth) break;  // the wall comes first
+        if (aheadWall >= 0.0f && i > aheadWall + kBodyHalfWidth) break;  // the wall hum covers it
         const Edge e = ClassifyColumn(p, p.pos.x + ahead * i * kTile);
         if (e != Edge::None) {
             found = e;
@@ -127,35 +226,76 @@ void TickEdges(const game::PlayerState& p, int ahead, float aheadWall) {
     const bool closer = found != Edge::None && column <= kUrgentColumns && g.lastEdgeColumn > kUrgentColumns;
     if (found != Edge::None && (changed || closer)) {
         PlayEdge(found, ahead);
+        if (found == Edge::Pit && column <= kUrgentColumns) autopilot::Note(autopilot::Cue::PitAhead);
+        if (found == Edge::StepUp && column <= 1) autopilot::Note(autopilot::Cue::StepAhead);
         if (LogTerrain()) RT_LOGF(RT_TAG_A11Y, "terrain: edge %d at column %d\n", int(found), column);
     }
     g.lastEdge = found;
     g.lastEdgeColumn = found == Edge::None ? 0 : column;
 }
 
+// A surface Mario could jump up onto, over his own column.
+void TickPlatformAbove(const game::PlayerState& p, float frameSec) {
+    g.aboveTimer -= frameSec;
+    float h = 0.0f;
+    int up = 0;
+    if (game::GroundBelow(p.pos.x, p.pos.y + kPlatformAboveMaxTiles * kTile, p.layer, h)) {
+        const float rise = (h - p.pos.y) / kTile;
+        if (rise >= kPlatformAboveMinTiles) up = static_cast<int>(std::lround(rise));
+    }
+    if (up != 0 && up != g.lastAboveUp && g.aboveTimer <= 0.0f) {
+        cues::Play(cues::PlatformAbove(up));
+        g.aboveTimer = cues::kPlatformAboveCooldownSec;
+    }
+    g.lastAboveUp = up;
+}
+
 void TickAir(const game::PlayerState& p, float frameSec) {
-    auto& cues = audio::CueService::Instance();
+    auto& service = audio::CueService::Instance();
+    g.airSec += frameSec;
+    if (g.airSec < kAirConfirmSec) return;  // a tiny hop is not worth a sound
     float h = 0.0f;
     const bool ground = game::GroundBelow(p.pos.x, p.pos.y + kTile * 0.25f, p.layer, h);
-    const float dist = (p.pos.y - h) / kTile;
-    if (!ground || dist > kPitTiles * 2.0f) {
-        if (g.airTone) cues.Stop(audio::CueChannel::Ground);
-        g.airTone = false;
-        g.noGroundTimer -= frameSec;
-        if (g.noGroundTimer <= 0.0f) {
-            cues.PlayOneShot(audio::CueChannel::Hazard, audio::cues::NoGroundBelow());
-            g.noGroundTimer = audio::cues::kNoGroundPulseSec;
+    const float drop = (p.pos.y - h) / kTile;
+    const bool pit = !ground || drop > kPitTiles * 2.0f;
+    if (pit) {
+        service.Stop(audio::CueChannel::Ground);
+        g.groundStep = -1;
+        g.pitTimer -= frameSec;
+        if (g.pitTimer <= 0.0f) {
+            cues::Play(cues::Pit());
+            g.pitTimer = cues::kPitRepeatSec;
         }
+        g.lastPit = true;
         return;
     }
-    g.noGroundTimer = 0.0f;
-    if (dist < kAirToneMinTiles) {
-        if (g.airTone) cues.Stop(audio::CueChannel::Ground);
-        g.airTone = false;
-        return;
+    g.pitTimer = 0.0f;
+    if (g.lastPit) {
+        cues::Play(cues::GroundAfterPit());
+    } else if (g.haveLastGround && (h - g.lastGroundY) / kTile > kPlatformUnderRise) {
+        cues::Play(cues::PlatformUnder());
     }
-    cues.SetSustained(audio::CueChannel::Ground, audio::cues::GroundBelow(dist));
-    g.airTone = true;
+    g.lastPit = false;
+    g.lastGroundY = h;
+    g.haveLastGround = true;
+    if (g.groundStep < 0 || std::fabs(drop - static_cast<float>(g.groundStep)) > kStepHysteresis) {
+        g.groundStep = static_cast<int>(std::lround(std::max(drop, 0.0f)));
+    }
+    const int kind = IsHazardWater(game::WaterAt(p.pos.x, h + kTile * 0.25f, p.layer)) ? 2 : 0;
+    service.SetSustained(audio::CueChannel::Ground, cues::GroundBelow(g.groundStep, kind));
+}
+
+void TickGround(const game::PlayerState& p, int ahead, float aheadWall, float frameSec) {
+    auto& service = audio::CueService::Instance();
+    if (g.wasAir && g.airSec >= kAirConfirmSec) cues::Play(cues::Landing());
+    service.Stop(audio::CueChannel::Ground);
+    g.airSec = 0.0f;
+    g.groundStep = -1;
+    g.pitTimer = 0.0f;
+    g.lastPit = false;
+    g.haveLastGround = false;
+    TickEdges(p, ahead, aheadWall);
+    TickPlatformAbove(p, frameSec);
 }
 
 }  // namespace
@@ -169,24 +309,23 @@ void Tick(const game::PlayerState& p, float frameSec) {
     const int ahead = std::fabs(p.speed.x) > kMovingSpeed ? (p.speed.x > 0 ? 1 : -1) : facing;
     float aheadWall = -1.0f;
     TickWalls(p, ahead, frameSec, aheadWall);
+    TickCeiling(p);
     if (p.onGround) {
-        if (g.airTone) audio::CueService::Instance().Stop(audio::CueChannel::Ground);
-        g.airTone = false;
-        g.noGroundTimer = 0.0f;
-        TickEdges(p, ahead, aheadWall);
+        TickGround(p, ahead, aheadWall, frameSec);
     } else {
         g.lastEdge = Edge::None;
         g.lastEdgeColumn = 0;
         TickAir(p, frameSec);
     }
+    g.wasAir = !p.onGround;
 }
 
 void Stop() {
-    auto& cues = audio::CueService::Instance();
-    cues.Stop(audio::CueChannel::WallLeft);
-    cues.Stop(audio::CueChannel::WallRight);
-    cues.Stop(audio::CueChannel::Ground);
-    cues.Stop(audio::CueChannel::Edge);
+    auto& service = audio::CueService::Instance();
+    service.Stop(audio::CueChannel::WallLeft);
+    service.Stop(audio::CueChannel::WallRight);
+    service.Stop(audio::CueChannel::Ground);
+    service.Stop(audio::CueChannel::Ceiling);
     g = State{};
 }
 

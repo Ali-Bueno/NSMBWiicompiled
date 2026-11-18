@@ -3,7 +3,8 @@
 
 namespace a11y::audio {
 
-enum class Waveform { Sine, Triangle, Square, Saw };
+// Noise ignores the phase; Warm is a sine with its 2nd and 3rd harmonics (a rounder hum).
+enum class Waveform { Sine, Triangle, Square, Saw, Noise, Warm };
 
 // One cycle, phase in [0,1). Already trimmed so the four shapes sit at the same perceived
 // loudness - a square at the same peak as a sine reads far louder because of its odd harmonics.

@@ -9,7 +9,12 @@
 
 namespace a11y::level {
 
-enum class ActorCategory { Unknown, Enemy, Item, StarCoin, Coin, Block, Goal, Door, Checkpoint, Prop };
+// Enemy: can be stomped. Danger: hurts from above too (spikes, fire, piranha plants). Boss.
+enum class ActorCategory { Unknown, Enemy, Danger, Boss, Item, StarCoin, Coin, Block, Goal, Door, Checkpoint, Prop };
+
+inline bool IsHostile(ActorCategory c) {
+    return c == ActorCategory::Enemy || c == ActorCategory::Danger || c == ActorCategory::Boss;
+}
 
 struct NearbyActor {
     game::ActorInfo info;

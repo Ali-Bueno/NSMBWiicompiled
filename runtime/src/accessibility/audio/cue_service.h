@@ -32,6 +32,8 @@ enum class CueChannel {
     Item,       // one-shots: items, coins, blocks
     Goal,       // one-shots: the goal beacon tick
     Pipe,       // one-shots: the nearest enterable pipe
+    Combat,     // one-shots: jump now / jump over / stomp target / danger below
+    Ceiling,    // sustained: a ceiling above, louder as it gets lower
     Ui,         // one-shots: feedback for hotkeys and the sound guide
     Count,
 };
@@ -56,6 +58,13 @@ struct CueSpec {
     // pitch as a playback-rate multiplier. shape/frequencyHz are ignored while set.
     SampleId sample = SampleId::None;
     float pitch = 1.0f;
+    // Amplitude pulse: a smooth throb, or with `pluck` a tick at the start of every cycle
+    // (5 ms rise, 45 ms decay). Zero pulseHz is a steady tone.
+    float pulseHz = 0.0f;
+    float pulseDepth = 0.0f;
+    bool pluck = false;
+    float lowpassHz = 0.0f;  // one-pole low-pass; zero leaves the tone bright
+    float delaySec = 0.0f;   // free voices only: wait this long before sounding
 };
 
 // Our own SDL stream, deliberately not the game's audio path: audio_backend.h is a single queue,
@@ -81,6 +90,9 @@ public:
     // Starts the channel if it is silent, otherwise re-steers pitch, pan and volume without
     // restarting it, so a caller can drive it every frame from a continuous value.
     void SetSustained(CueChannel channel, const CueSpec& spec);
+    // A one-shot on a voice of its own from a shared pool, so composite sounds (a knock with its
+    // overtone, a two-note chime, several enemies at once) can overlap. The oldest is stolen.
+    void PlayFree(const CueSpec& spec);
 
     void Stop(CueChannel channel);
     void StopAll();
@@ -113,6 +125,11 @@ private:
         float samplePos = 0.0f;          // in source samples; fractional part interpolates
         float rate = 1.0f;
         float channelVolume = 1.0f;  // the family's knob
+        float pulseHz = 0.0f, pulseDepth = 0.0f, pulsePhase = 0.0f;
+        bool pluck = false;
+        float lowpassCoef = 0.0f, lowpassState = 0.0f;
+        float delaySec = 0.0f;
+        std::uint32_t startedAt = 0;  // PlayFree order, for stealing the oldest
     };
 
     Voice& VoiceFor(CueChannel channel) { return mVoices[static_cast<int>(channel)]; }
@@ -122,7 +139,9 @@ private:
     int ReleaseTailFrames() const;
 
     SDL_AudioStream* mStream = nullptr;
-    Voice mVoices[static_cast<int>(CueChannel::Count)];
+    static constexpr int kPoolVoices = 32;
+    Voice mVoices[static_cast<int>(CueChannel::Count) + kPoolVoices];
+    std::uint32_t mFreeCounter = 0;
     std::vector<float> mMix;
     std::vector<int16_t> mOut;
     float mMasterVolume = 1.0f;

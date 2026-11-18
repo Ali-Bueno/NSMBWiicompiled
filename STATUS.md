@@ -25,27 +25,33 @@ line logged); **not yet played by a blind player.**
 | F10 options menu (host-drawn) | done | speaks tab, row, value; bindings screen |
 | Title, course-in, lives, death, power-ups, time, star coins | done | star-coin announcement unverified in game |
 | World map: world, node, cleared, "no path" | done | path directions are not listed |
-| Terrain cues: walls, pits, drops, steps, lava, ground below | wip | needs a listening test and tuning |
-| Enemy / item / goal / pipe cues | wip | needs a listening test |
+| Terrain cues (Kirby-style): wall hums by height + spoken height, ceiling, edges, platform above, air hum / pit / landing | wip | needs a listening test and tuning |
+| Enemy radar (signature per kind, stompable vs dangerous, boss drum), items, under-item bell, goal, pipes | wip | needs a listening test |
+| Combat timing: jump now / jump high / jump over, stomp and danger-below while falling | wip | arc-timed; autopilot stomps 8 enemies in 1-1, dies at a goomba pair |
+| Tile camera (I J K L, U, O) | wip | untested by a player |
 | F2-F4 info (status, progress, nearby with pipes) | done | |
-| Sound guide (Shift+F9) | done | |
+| Sound guide (Shift+F9): categories, Page Up/Down, Home/End, F9 replay | done | |
 | Toad-house minigames, bosses' patterns, Super Guide | todo | |
-| Game's own sound effects as cues | done | pipes, items, map "no path", volume; labels resolved by the sound archive (`game/game_sound.*`) |
+| Game's own sound effects as cues | done | pipes, items; labels resolved by the sound archive (`game/game_sound.*`). The map "no path" sound was dropped at the player's request (speech only) |
 
 ## Code map
 
 - `runtime/src/accessibility/accessibility.cpp` — entry points, per-frame order, hotkey actions.
 - `game/` — the engine adapter (`nsmbw_game.*`: every address and offset) and `guest_call.h` (calls guest functions with a scratch frame).
 - `ui/` — `lyt.*` (pane/text reading), `menu_reader.*` (cursor focus).
-- `level/` — `terrain.*`, `actors.*` (+ generated `actor_names.inc`), `entrances.*` (pipes, goal from course data), `level_monitor.*` (announcements).
+- `level/` — `terrain.*`, `actors.*` (radar; generated `actor_names.inc` with Enemy/Danger/Boss), `combat.*` (jump timing from measured jump arcs), `camera.*` (tile camera), `entrances.*` (pipes, goal from course data), `level_monitor.*` (announcements).
+- `audio/cue_service.*` + `cue_render.cpp`: fixed channels for hums plus a 32-voice pool (`PlayFree`) for composite one-shots; noise/warm waves, pulse, low-pass, per-part delay.
+- `test_autopilot.*`: `NSMBW_A11Y_AUTOPILOT=1` plays a level from the cues alone, with a 12-frame reaction delay; `NSMBW_A11Y_LOG_COMBAT=1` traces Mario and the cued enemy frame by frame.
 - `map/world_map.*`, `audio/` (cue mixer + `cues.h` palette), `speech.*`, `localization.*` + `phrases_en.inc`, `accessibility_lang/es.ini`.
 - Overrides: `projects/nsmbw/native/nsmbw_a11y_cursor.cpp`, `nsmbw_a11y_language.cpp`; tick + input sample in `nsmbw_kpad_overrides.cpp`.
 - Facts and offsets: [`docs/accessibility/nsmbw-structures.md`](docs/accessibility/nsmbw-structures.md). Build and test: [`docs/accessibility/README.md`](docs/accessibility/README.md).
 
 ## Next step
 
-Play-test with the screen reader: 1-1 to the goal with the cues on, then tune `audio/cues.h`
-(levels, wall tick rate, which edges to announce) from what the player reports.
+Chained enemies: after a stomp bounce or with two enemies in a row the jump cue comes too late
+(autopilot death in 1-1 at x~2217). Options: cue from the air for a jump on landing, and use
+Mario's settled walking speed instead of his decelerating speed after a landing. Then the user's
+listening test, and tune `audio/cues.h`.
 
 ## Review
 
@@ -58,6 +64,7 @@ spoken, portable fallback when the exe folder is read-only. Not fixed: non-Windo
 ## Known issues
 
 - File-select slots read as "Mundo, 1, x, 05" (world and lives without words).
-- The world map does not say which directions have a path; pressing one without a path says "sin camino".
+- The world map does not say which directions have a path; pressing one without a path says "sin camino" (once per real press, 1.5 s cooldown, not during the first 3 s on the map).
+- Jump arcs in `level/combat.cpp` were measured walking; a running jump is higher, so cues may be slightly early when running.
 - Fresh translations can drop functions reached only through pointers (one seeded so far: `0x80773220`); a new `missing_target` crash needs the address added to `function_map.txt` and the REL re-translated.
 - Only PAL rev 1 is supported by the accessibility addresses (the USA build would need them mapped).

@@ -14,6 +14,8 @@
 #include "accessibility/game/nsmbw_game.h"
 #include "accessibility/hotkeys.h"
 #include "accessibility/level/actors.h"
+#include "accessibility/level/camera.h"
+#include "accessibility/level/combat.h"
 #include "accessibility/level/entrances.h"
 #include "accessibility/level/level_monitor.h"
 #include "accessibility/level/terrain.h"
@@ -23,6 +25,7 @@
 #include "accessibility/screen_reader.h"
 #include "accessibility/sound_guide.h"
 #include "accessibility/speech.h"
+#include "accessibility/test_autopilot.h"
 #include "accessibility/ui/menu_reader.h"
 
 namespace a11y {
@@ -52,6 +55,7 @@ bool InPlayableLevel() {
 void SilenceGameplayCues() {
     level::terrain::Stop();
     level::StopCues();
+    level::combat::Reset();
 }
 
 void RunAction(hotkeys::Action action, const game::PlayerState* player) {
@@ -88,18 +92,29 @@ void RunAction(hotkeys::Action action, const game::PlayerState* player) {
             config::Save();
             ApplyVolume();
             if (!cfg.gameSounds || !game::sound::PlaySystem(audio::cues::kGameCursorLabel)) {
-                audio::CueService::Instance().PlayOneShot(audio::CueChannel::Ui, audio::cues::Confirm());
+                audio::cues::Play(audio::cues::Confirm());
             }
             speech::Say(loc::Format("volume", {{"n", std::to_string(cfg.cueVolume)}}), true);
             break;
         }
         case hotkeys::Action::Repeat:
-            speech::RepeatLast();
+            if (sound_guide::IsOpen()) sound_guide::Replay();
+            else speech::RepeatLast();
             break;
         case hotkeys::Action::SoundGuide:
             SilenceGameplayCues();
-            sound_guide::Start();
+            sound_guide::Toggle();
             break;
+        case hotkeys::Action::GuideNext: sound_guide::Next(1); break;
+        case hotkeys::Action::GuidePrev: sound_guide::Next(-1); break;
+        case hotkeys::Action::GuideNextCategory: sound_guide::NextCategory(1); break;
+        case hotkeys::Action::GuidePrevCategory: sound_guide::NextCategory(-1); break;
+        case hotkeys::Action::CameraLeft: if (player) level::camera::Move(*player, -1, 0); break;
+        case hotkeys::Action::CameraRight: if (player) level::camera::Move(*player, 1, 0); break;
+        case hotkeys::Action::CameraUp: if (player) level::camera::Move(*player, 0, 1); break;
+        case hotkeys::Action::CameraDown: if (player) level::camera::Move(*player, 0, -1); break;
+        case hotkeys::Action::CameraDescribe: if (player) level::camera::Describe(*player); break;
+        case hotkeys::Action::CameraHome: level::camera::Home(); break;
     }
 }
 
@@ -190,9 +205,12 @@ void TickImpl() {
         level::terrain::Tick(player, frameSec);
         level::TickCues(player, frameSec);
         level::entrances::TickCue(player, frameSec);
+        level::combat::Tick(player);
+        level::camera::Tick(frameSec);
     } else {
         SilenceGameplayCues();  // menus, pause, map, death: the cues go quiet
     }
+    autopilot::Tick(havePlayer && !game::PlayerOutOfPlay(player.actor) && game::InNormalPlay(player));
 
     audio::CueService::Instance().SetFramePeriod(frameSec > 0.0f ? frameSec : audio::kDefaultFramePeriodSec);
     audio::CueService::Instance().Tick();

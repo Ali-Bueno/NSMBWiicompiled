@@ -27,6 +27,16 @@ std::optional<Action> ActionFor(const SDL_KeyboardEvent& key) {
         case SDL_SCANCODE_F7: return Action::VolumeDown;
         case SDL_SCANCODE_F8: return Action::VolumeUp;
         case SDL_SCANCODE_F9: return shift ? Action::SoundGuide : Action::Repeat;
+        case SDL_SCANCODE_PAGEDOWN: return Action::GuideNext;
+        case SDL_SCANCODE_PAGEUP: return Action::GuidePrev;
+        case SDL_SCANCODE_END: return Action::GuideNextCategory;
+        case SDL_SCANCODE_HOME: return Action::GuidePrevCategory;
+        case SDL_SCANCODE_J: return Action::CameraLeft;
+        case SDL_SCANCODE_L: return Action::CameraRight;
+        case SDL_SCANCODE_I: return Action::CameraUp;
+        case SDL_SCANCODE_K: return Action::CameraDown;
+        case SDL_SCANCODE_U: return Action::CameraDescribe;
+        case SDL_SCANCODE_O: return Action::CameraHome;
         default: return std::nullopt;
     }
 }
@@ -38,9 +48,13 @@ void HandleEvents(const AuroraEvent* events) {
         return;
     }
     for (const AuroraEvent* ev = events; ev->type != AURORA_NONE; ++ev) {
-        if (ev->type != AURORA_SDL_EVENT || ev->sdl.type != SDL_EVENT_KEY_DOWN || ev->sdl.key.repeat) {
+        if (ev->type != AURORA_SDL_EVENT || ev->sdl.type != SDL_EVENT_KEY_DOWN) {
             continue;
         }
+        // Held keys repeat only for the tile camera, which steps through tiles.
+        const SDL_Scancode sc = ev->sdl.key.scancode;
+        const bool cameraKey = sc == SDL_SCANCODE_I || sc == SDL_SCANCODE_J || sc == SDL_SCANCODE_K || sc == SDL_SCANCODE_L;
+        if (ev->sdl.key.repeat && !cameraKey) continue;
         // The options menu (and its rebinding screen) owns the keyboard while it is open.
         if (NsmbwOptionsMenuIsOpen()) continue;
         if (const auto action = ActionFor(ev->sdl.key)) {

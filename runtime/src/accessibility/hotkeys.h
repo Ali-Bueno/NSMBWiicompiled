@@ -18,6 +18,16 @@ enum class Action {
     VolumeUp,      // F8
     Repeat,        // F9
     SoundGuide,    // Shift+F9
+    GuideNext,     // Page Down (sound guide open)
+    GuidePrev,     // Page Up
+    GuideNextCategory,  // End
+    GuidePrevCategory,  // Home
+    CameraLeft,    // J
+    CameraRight,   // L
+    CameraUp,      // I
+    CameraDown,    // K
+    CameraDescribe,  // U
+    CameraHome,    // O
 };
 
 // Host (event) thread: turns key presses into queued actions. Never touches guest state.

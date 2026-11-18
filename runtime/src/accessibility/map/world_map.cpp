@@ -1,3 +1,5 @@
+#include <aurora/env.hpp>
+
 #include "accessibility/map/world_map.h"
 
 #include <cmath>
@@ -30,6 +32,13 @@ constexpr std::uint32_t kActorPos = 0xAC;
 // A direction pressed while Mario does not start walking within this many frames had no path.
 constexpr int kNoPathFrames = 30;
 constexpr float kMovedUnits = 1.0f;
+// Anti-spam for "no path" (a player heard it constantly, 2026-11-18): a press only counts after
+// the directions were released for a few frames (a held key or a stick trembling at its threshold
+// is one press), at most one warning per cooldown, and none while the map is still opening
+// (the first press after arrival never moved Mario in the test runs; 3 s is an estimate).
+constexpr int kReleaseFrames = 6;
+constexpr int kNoPathCooldownFrames = 90;
+constexpr int kMapSettleFrames = 180;
 
 // dWmLib::CourseType_e (decomp d_wm_lib.hpp).
 enum CourseType : int {
@@ -48,6 +57,9 @@ struct Node {
 
 Node g_last;
 int g_pressFrames = -1;  // frames since a direction press that has not moved Mario yet
+int g_releasedFrames = 0;  // frames with no direction held
+int g_cooldown = 0;
+int g_mapFrames = 0;       // frames since the map opened
 Vec3 g_pressPos;
 int g_lastWorldSaid = -1;
 bool g_wasOnMap = false;
@@ -69,11 +81,31 @@ bool MapPlayerPos(Vec3& out) {
     return TryPointer(kMapPlayer, player) && TryVec3(player + kActorPos, out);
 }
 
+bool LogMap() {
+    static const bool on = [] {
+        const char* v = AURORA_ENV("NSMBW_A11Y_LOG_MAP");
+        return v != nullptr && *v == '1';
+    }();
+    return on;
+}
+
 // Says "no path" when a direction press does not set Mario walking.
 void TickNoPath() {
     Vec3 pos;
     if (!MapPlayerPos(pos)) return;
-    if ((game::InputTrig() & game::kScreenDirections) != 0) {
+    if (g_cooldown > 0) --g_cooldown;
+    const bool held = (game::InputHold() & game::kScreenDirections) != 0;
+    const bool fresh = (game::InputTrig() & game::kScreenDirections) != 0 && g_releasedFrames >= kReleaseFrames;
+    g_releasedFrames = held ? 0 : g_releasedFrames + 1;
+    if (g_mapFrames < kMapSettleFrames) {
+        g_pressFrames = -1;
+        return;
+    }
+    if (fresh) {
+        if (LogMap()) {
+            RT_LOGF(RT_TAG_A11Y, "map: press trig=0x%X hold=0x%X pos %.1f,%.1f,%.1f\n", game::InputTrig(),
+                    game::InputHold(), pos.x, pos.y, pos.z);
+        }
         g_pressFrames = 0;
         g_pressPos = pos;
         return;
@@ -86,7 +118,9 @@ void TickNoPath() {
     }
     if (++g_pressFrames >= kNoPathFrames) {
         g_pressFrames = -1;
-        if (config::Get().gameSounds) game::sound::PlaySystem(audio::cues::kGameInvalidLabel);
+        if (g_cooldown > 0) return;
+        g_cooldown = kNoPathCooldownFrames;
+        if (LogMap()) RT_LOGF(RT_TAG_A11Y, "map: no path, pos %.1f,%.1f,%.1f\n", pos.x, pos.y, pos.z);
         speech::Say(loc::Get("map_no_path"), true);
     }
 }
@@ -135,7 +169,10 @@ void Tick() {
     if (!g_wasOnMap) {
         g_wasOnMap = true;
         g_lastWorldSaid = -1;
+        g_mapFrames = 0;
+        g_pressFrames = -1;
     }
+    ++g_mapFrames;
     if (game::GamePaused()) {  // a map menu is open: the menu reader speaks
         g_pressFrames = -1;
         return;

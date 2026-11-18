@@ -6,6 +6,9 @@
 namespace a11y::audio {
 namespace {
 constexpr float kInt16Peak = 32767.0f;
+constexpr float kPluckRiseSec = 0.005f;
+constexpr float kPluckDecaySec = 0.045f / 3.0f;  // about 95% decayed 45 ms after the rise
+constexpr float kTwoPiRender = 6.2831853f;
 }  // namespace
 
 bool CueService::SamplePlayable(const Sample& sample, float pos) {
@@ -31,7 +34,12 @@ void CueService::Render(int frames) {
         const float gainRStep = (voice.targetGainR - voice.gainR) * invFrames;
         float voicePeak = 0.0f;
 
+        const float pulseStep = voice.pulseHz * secPerSample;
         for (int i = 0; i < frames; ++i) {
+            if (voice.delaySec > 0.0f) {  // a queued part of a composite sound: not started yet
+                voice.delaySec -= secPerSample;
+                continue;
+            }
             // A sample plays to its own end; only synthesized one-shots run on the timer.
             if (!voice.sample && !voice.sustained && !voice.stopping) {
                 voice.remainingSec -= secPerSample;
@@ -59,7 +67,24 @@ void CueService::Render(int frames) {
                 voice.phase += voice.freq * secPerSample;
                 voice.phase -= std::floor(voice.phase);
             }
-            const float sample = raw * voice.amp * voice.env * voice.channelVolume;
+            if (voice.lowpassCoef > 0.0f) {
+                voice.lowpassState += voice.lowpassCoef * (raw - voice.lowpassState);
+                raw = voice.lowpassState;
+            }
+            float pulse = 1.0f;
+            if (voice.pulseHz > 0.0f) {
+                voice.pulsePhase += pulseStep;
+                voice.pulsePhase -= std::floor(voice.pulsePhase);
+                float shape;
+                if (voice.pluck) {
+                    const float t = voice.pulsePhase / voice.pulseHz;  // seconds into this cycle
+                    shape = t < kPluckRiseSec ? t / kPluckRiseSec : std::exp(-(t - kPluckRiseSec) / kPluckDecaySec);
+                } else {
+                    shape = 0.5f - 0.5f * std::cos(voice.pulsePhase * kTwoPiRender);
+                }
+                pulse = 1.0f - voice.pulseDepth + voice.pulseDepth * shape;
+            }
+            const float sample = raw * voice.amp * voice.env * voice.channelVolume * pulse;
             const float left = sample * voice.gainL;
             const float right = sample * voice.gainR;
             mMix[static_cast<size_t>(i) * kChannels] += left;

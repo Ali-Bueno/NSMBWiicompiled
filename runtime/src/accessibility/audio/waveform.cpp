@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace a11y::audio {
 namespace {
@@ -14,6 +15,11 @@ constexpr float kTrimSine = 0.816496580927726f;    // sqrt(2/3)
 constexpr float kTrimSquare = 0.577350269189626f;  // 1/sqrt(3)
 
 constexpr float kTwoPi = 6.283185307179586f;
+// Noise and the warm hum, trimmed by ear to sit at the triangle's loudness.
+constexpr float kTrimNoise = 0.6f;
+constexpr float kWarm2 = 0.45f;
+constexpr float kWarm3 = 0.25f;
+constexpr float kTrimWarm = 0.6f;
 constexpr float kQuarterPi = 0.785398163397448f;
 
 }  // namespace
@@ -26,6 +32,17 @@ float SampleWaveform(Waveform shape, float phase) {
             return (phase < 0.5f ? 1.0f : -1.0f) * kTrimSquare;
         case Waveform::Saw:
             return (phase * 2.0f - 1.0f) * kTrimSaw;
+        case Waveform::Noise: {
+            // xorshift: cheap, and the mixer renders on one thread.
+            static std::uint32_t state = 0x9E3779B9u;
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            return (static_cast<float>(state) / 2147483648.0f - 1.0f) * kTrimNoise;
+        }
+        case Waveform::Warm:
+            return (std::sin(phase * kTwoPi) + kWarm2 * std::sin(2.0f * phase * kTwoPi) +
+                    kWarm3 * std::sin(3.0f * phase * kTwoPi)) * kTrimWarm;
         case Waveform::Triangle:
         default:
             return (phase < 0.5f ? phase * 4.0f - 1.0f : 3.0f - phase * 4.0f) * kTrimTriangle;

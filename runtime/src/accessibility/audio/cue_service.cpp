@@ -116,6 +116,13 @@ void CueService::Apply(Voice& voice, const CueSpec& spec, bool sustained, bool r
     }
     voice.sample = sample;
     voice.sweepPerSample = 1.0f;
+    voice.pulseHz = std::max(spec.pulseHz, 0.0f);
+    voice.pulseDepth = std::clamp(spec.pulseDepth, 0.0f, 1.0f);
+    voice.pluck = spec.pluck;
+    voice.lowpassCoef = spec.lowpassHz > 0.0f
+                            ? 1.0f - std::exp(-6.2831853f * spec.lowpassHz / static_cast<float>(kSampleRate))
+                            : 0.0f;
+    voice.delaySec = std::max(spec.delaySec, 0.0f);
     if (!sustained) {
         voice.remainingSec = spec.durationSec;
         if (!sample && spec.sweepToHz > 0.0f && spec.frequencyHz > 0.0f && spec.durationSec > 0.0f) {
@@ -169,6 +176,25 @@ void CueService::PlayOneShot(CueChannel channel, const CueSpec& spec) {
         return;
     }
     Apply(VoiceFor(channel), spec, /*sustained=*/false, /*restart=*/true);
+}
+
+void CueService::PlayFree(const CueSpec& spec) {
+    if (!mStream) {
+        return;
+    }
+    const int first = static_cast<int>(CueChannel::Count);
+    Voice* chosen = nullptr;
+    for (int i = first; i < first + kPoolVoices; ++i) {
+        Voice& v = mVoices[i];
+        if (!v.active) {
+            chosen = &v;
+            break;
+        }
+        if (chosen == nullptr || v.startedAt < chosen->startedAt) chosen = &v;
+    }
+    chosen->channelVolume = 1.0f;
+    chosen->startedAt = ++mFreeCounter;
+    Apply(*chosen, spec, /*sustained=*/false, /*restart=*/true);
 }
 
 void CueService::SetSustained(CueChannel channel, const CueSpec& spec) {

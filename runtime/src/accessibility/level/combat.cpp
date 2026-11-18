@@ -69,11 +69,11 @@ constexpr float kCueLateFrames = 4.0f;
 // Mario's and a small enemy's half widths together: closer than this (centre to centre) they touch.
 // From the first 1-1 trace, Mario landing 13 units beside a goomba was hurt.
 constexpr float kTouchUnits = 14.0f;
-constexpr float kTrackFrames = 120.0f;     // beyond this an enemy is not "approaching" yet
+constexpr float kTrackFrames = 220.0f;     // beyond this an enemy is not "approaching" yet (sensor start + a jump)
 constexpr float kMinClosingSpeed = 0.25f;  // world units per frame: slower is not "coming at you"
 constexpr float kAboveMaxUnits = 80.0f;    // enemies higher than a full jump are out of reach
 constexpr float kBelowMaxUnits = 96.0f;    // and lower than this are not Mario's business yet
-constexpr float kLookAheadTiles = 10.0f;
+constexpr float kLookAheadTiles = 18.0f;  // walking at an enemy closes ~2 units/frame: 2.5 s is ~19 tiles
 // Falling: right over it within this many units sideways, and the enemy within this many tiles below.
 constexpr float kStompAlignUnits = 12.0f;
 constexpr float kStompBelowTiles = 5.0f;
@@ -96,9 +96,11 @@ std::uint32_t g_stompCued = 0;  // the enemy of the last stomp/danger cue in thi
 // The approach sensor: like a parking sensor, the nearest enemy coming at Mario beeps faster as
 // the moment to jump gets closer (a sighted player watches it come and judges the moment); the
 // chord sounds on the ideal take-off frame. It starts this many frames ahead of that moment.
-constexpr float kSensorStartFrames = 60.0f;
+// It starts 2.5 s ahead: the player found 1 s too short to react ("they attack me before I can
+// do anything", 2026-11-18).
+constexpr float kSensorStartFrames = 150.0f;
 constexpr float kSensorMinSec = 0.08f;
-constexpr float kSensorSecPerFrame = 0.0075f;  // 60 frames ahead: 0.53 s between beeps
+constexpr float kSensorSecPerFrame = 0.0065f;  // 150 frames ahead: ~1 s between beeps, 30: 0.2 s
 float g_sensorTimer = 0.0f;
 std::uint32_t g_accentActor = 0;  // the enemy whose chord has sounded on this approach
 constexpr float kNoTakeOff = 1.0e9f;

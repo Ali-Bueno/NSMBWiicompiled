@@ -17,6 +17,7 @@ namespace a11y::audio::cues {
 using Composite = std::vector<CueSpec>;
 
 inline float Semitones(float n) { return std::pow(2.0f, n / 12.0f); }
+inline constexpr float kLoudnessCurve = 0.6f;  // 0.12 -> 0.28, 0.2 -> 0.38, 0.5 -> 0.66
 
 // Plays every part of a composite sound on the free voices.
 inline void Play(const Composite& parts) {
@@ -29,7 +30,9 @@ inline CueSpec Tone(Waveform shape, float f0, float f1, float sec, float gain, f
     c.frequencyHz = f0;
     c.sweepToHz = f1 != f0 ? f1 : 0.0f;
     c.durationSec = sec;
-    c.amplitude = std::clamp(gain, 0.0f, 1.0f);
+    // Quiet cues were too quiet next to the game's music (player report, 2026-11-18): a power
+    // curve lifts the soft ones much more than the loud ones, keeping their order.
+    c.amplitude = std::pow(std::clamp(gain, 0.0f, 1.0f), kLoudnessCurve);
     c.pan = pan;
     c.delaySec = delay;
     return c;
@@ -58,7 +61,7 @@ inline CueSpec GroundBelow(int dropTiles, int kind) {
     CueSpec c;
     c.shape = kind == 2 ? Waveform::Saw : kind == 1 ? Waveform::Triangle : Waveform::Sine;
     c.frequencyHz = std::max(523.0f * std::pow(2.0f, -static_cast<float>(std::max(dropTiles, 0)) / 6.0f), 98.0f);
-    c.amplitude = kind == 2 ? 0.09f : 0.08f;
+    c.amplitude = kind == 2 ? 0.2f : 0.18f;
     c.lowpassHz = kind == 2 ? 1400.0f : 900.0f;
     return c;
 }
@@ -151,7 +154,7 @@ inline CueSpec WallHum(WallKind kind, float closeness, float pan) {
     CueSpec c;
     c.pan = pan;
     c.lowpassHz = 1800.0f;
-    const float shaped = std::pow(std::clamp(closeness, 0.0f, 1.0f), 1.5f);
+    const float shaped = std::clamp(closeness, 0.0f, 1.0f);
     switch (kind) {
         case WallKind::Step:
             c.shape = Waveform::Triangle;
@@ -159,19 +162,19 @@ inline CueSpec WallHum(WallKind kind, float closeness, float pan) {
             c.pulseHz = 4.0f;
             c.pulseDepth = 0.8f;
             c.pluck = true;
-            c.amplitude = shaped * 0.38f;
+            c.amplitude = shaped * 0.5f;
             break;
         case WallKind::HighJump:
             c.shape = Waveform::Warm;
             c.frequencyHz = 247.0f;
             c.pulseHz = 2.5f;
             c.pulseDepth = 0.7f;
-            c.amplitude = shaped * 0.30f;
+            c.amplitude = shaped * 0.42f;
             break;
         case WallKind::Wall:
             c.shape = Waveform::Warm;
             c.frequencyHz = 196.0f;
-            c.amplitude = shaped * 0.25f;
+            c.amplitude = shaped * 0.36f;
             break;
     }
     return c;
@@ -189,7 +192,7 @@ inline CueSpec CeilingHum(float closeness) {
     c.shape = Waveform::Noise;
     c.frequencyHz = 400.0f;
     const float k = std::clamp(closeness, 0.0f, 1.0f);
-    c.amplitude = 0.05f + 0.13f * k;
+    c.amplitude = 0.1f + 0.2f * k;
     c.lowpassHz = 350.0f + 650.0f * k;
     return c;
 }

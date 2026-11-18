@@ -38,7 +38,7 @@ std::uint32_t IdFor(const char* label) {
     call.Gpr(3, actor);
     call.Gpr(4, text);
     const std::uint32_t id = call.Invoke<NSMBW_VA(0x80275750u)>();  // SoundActor::detail_ConvertLabelStringToSoundId
-    g_ids.emplace(label, id);
+    if (id != kInvalidId) g_ids.emplace(label, id);  // a failure may only mean "not loaded yet"
     return id;
 }
 

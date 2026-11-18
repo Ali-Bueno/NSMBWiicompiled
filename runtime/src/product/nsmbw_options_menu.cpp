@@ -663,6 +663,7 @@ void HandleEvents(const AuroraEvent* events) noexcept {
         if (!nsmbw_controls::Capturing()) {
             g_bind.capturing = false;
             Play(kSndDecide);
+            SpeakFocus(false);  // says the control the action now has
         }
         return;
     }

@@ -41,7 +41,7 @@
 {"demo_pipe", "into the pipe"},
 {"demo_door", "through the door"},
 {"demo_vine", "climbing the vine"},
-{"title_screen", "Title screen. Press Enter to start."},
+{"title_screen", "Title screen. Press Enter or Space to start."},
 {"star_coin_got", "star coin"},
 {"in_water", "underwater"},
 {"out_water", "out of the water"},

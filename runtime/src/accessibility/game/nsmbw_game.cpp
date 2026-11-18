@@ -22,6 +22,8 @@ constexpr std::uint32_t kTimerUnitShift = 12;
 constexpr std::uint32_t kStageScene = NSMBW_VA(0x8042A4A8u);    // dScStage_c::m_instance
 constexpr std::uint32_t kStageAreaNo = 0x120F;  // mCurrAreaNo: dScene_c (0x74) + pad[0x1198] + world, course, file
 
+// dBg_c::m_bg_p: the level background every collision query reads; null while a stage loads.
+constexpr std::uint32_t kBgInstance = NSMBW_VA(0x8042A0B0u);
 constexpr std::uint8_t kGameModeTitle = 2;
 constexpr std::uint8_t kGameModeTitleReplay = 3;
 
@@ -113,7 +115,13 @@ bool GamePaused() {
     return TryU32(kGameStopWord, stop) && stop != 0;
 }
 
+bool StageReady() {
+    std::uint32_t bg = 0;
+    return TryPointer(kBgInstance, bg);
+}
+
 std::uint32_t PlayerActor(int slot) {
+    if (!StageReady()) return 0;  // the scene root exists frames before its background does
     GuestCall call;
     call.Gpr(3, static_cast<std::uint32_t>(slot));
     const std::uint32_t actor = call.Invoke<NSMBW_VA(0x8005F900u)>();  // daPyMng_c::getPlayer
@@ -237,7 +245,7 @@ bool WallBetween(float x0, float x1, float y, std::uint8_t layer, float& wallX) 
     call.Gpr(6, layer);
     call.Gpr(7, kLineKind);
     call.Gpr(8, 0);
-    const std::uint32_t hit = call.Invoke<NSMBW_VA(0x80075FD0u)>();  // dBc_c::checkWall
+    const std::uint32_t hit = call.Invoke<NSMBW_VA(0x80075FD0u)>() & 0xFFu;  // dBc_c::checkWall
     wallX = call.ReadFloat(out);
     return hit != 0;
 }
@@ -251,7 +259,7 @@ bool CeilingAbove(float x, float y, std::uint8_t layer, float& height) {
     call.Gpr(4, out);
     call.Gpr(5, layer);
     call.Gpr(6, kLineKind);
-    const std::uint32_t hit = call.Invoke<NSMBW_VA(0x80075CA0u)>();  // dBc_c::checkTenjou
+    const std::uint32_t hit = call.Invoke<NSMBW_VA(0x80075CA0u)>() & 0xFFu;  // dBc_c::checkTenjou
     height = call.ReadFloat(out);
     return hit != 0;
 }

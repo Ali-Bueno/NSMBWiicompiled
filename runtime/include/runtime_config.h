@@ -200,7 +200,9 @@ inline std::optional<std::filesystem::path> ExecutableDirectory() {
 #endif
 }
 
-// The portable root this executable lives under, or nullopt for a normal installation. The answer
+// The portable root this executable lives under: the folder holding a portable.txt marker, else
+// the executable's own folder (portable by default), or nullopt when that folder cannot be
+// written to (an install under Program Files keeps using the per-user folder). The answer
 // cannot change while the process runs, so it is resolved exactly once: every user-state path
 // derives from it and they must not disagree with each other.
 inline const std::optional<std::filesystem::path>& PortableRootDirectory() {
@@ -222,6 +224,9 @@ inline const std::optional<std::filesystem::path>& PortableRootDirectory() {
             current = parent;
         }
         // Portable by default: without a marker, user state lives next to the executable.
+        std::error_code writable;
+        std::filesystem::create_directories(*executableDirectory / kPortableUserDataDirectoryName, writable);
+        if (writable) return std::nullopt;
         return executableDirectory;
     }();
     return root;

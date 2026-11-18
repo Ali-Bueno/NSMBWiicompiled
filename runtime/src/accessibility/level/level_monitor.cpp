@@ -170,10 +170,9 @@ void Tick(const game::PlayerState* player) {
         g_level.active = false;
         OnSceneChange(previous, scene);
     }
-    if (player == nullptr) {
-        g_level.active = false;
-        return;
-    }
+    // A pause or the options menu hides the player for a while; the level state survives it and
+    // only a scene change starts it over.
+    if (player == nullptr) return;
     TickLevel(*player);
 }
 

@@ -6,6 +6,8 @@
 #include <deque>
 #include <mutex>
 
+extern "C" bool NsmbwOptionsMenuIsOpen();  // runtime/src/product/nsmbw_options_menu.cpp
+
 namespace a11y::hotkeys {
 namespace {
 
@@ -39,6 +41,8 @@ void HandleEvents(const AuroraEvent* events) {
         if (ev->type != AURORA_SDL_EVENT || ev->sdl.type != SDL_EVENT_KEY_DOWN || ev->sdl.key.repeat) {
             continue;
         }
+        // The options menu (and its rebinding screen) owns the keyboard while it is open.
+        if (NsmbwOptionsMenuIsOpen()) continue;
         if (const auto action = ActionFor(ev->sdl.key)) {
             std::lock_guard lock(g_mutex);
             if (g_queue.size() < kMaxQueued) {

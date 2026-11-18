@@ -32,6 +32,7 @@ constexpr std::uint32_t kMtxTransY = 7 * 4;
 // Deep enough for any game layout; a corrupt tree cannot loop us forever.
 constexpr int kMaxDepth = 24;
 constexpr size_t kMaxChildren = 256;
+constexpr int kMaxPanesPerWalk = 2048;  // far more than any NSMBW layout holds
 // NSMBW layouts name every text box "T_..." (pictures "P_", nulls "N_", windows "W_").
 constexpr char kTextBoxPrefix[] = "T_";
 // nw4r's tag escape (0x1A) starts an inline command such as a button icon; skipped, not spoken.
@@ -103,8 +104,8 @@ std::string ReadText(std::uint32_t pane) {
     return utf8.substr(first, last - first + 1);
 }
 
-void Collect(std::uint32_t pane, int depth, std::vector<TextPane>& out) {
-    if (depth > kMaxDepth) return;
+void Collect(std::uint32_t pane, int depth, int& budget, std::vector<TextPane>& out) {
+    if (depth > kMaxDepth || --budget < 0) return;  // a stale or cyclic tree cannot run away
     std::uint8_t flags = 0, alpha = 0;
     if (!TryU8(pane + kPaneFlags, flags) || (flags & kPaneFlagVisible) == 0) return;
     if (!TryU8(pane + kPaneAlpha, alpha) || alpha == 0) return;
@@ -118,7 +119,7 @@ void Collect(std::uint32_t pane, int depth, std::vector<TextPane>& out) {
         if (!t.text.empty()) out.push_back(std::move(t));
     }
     for (std::uint32_t child : Children(pane)) {
-        Collect(child, depth + 1, out);
+        Collect(child, depth + 1, budget, out);
     }
 }
 
@@ -147,7 +148,9 @@ std::vector<std::uint32_t> Children(std::uint32_t pane) {
     while (node != 0 && node != sentinel && out.size() < kMaxChildren) {
         if (!Memory::Contains(node, 8)) break;
         out.push_back(node - kPaneLinkNode);
-        if (!TryU32(node, node)) break;
+        std::uint32_t next = 0;
+        if (!TryU32(node, next) || next == node) break;
+        node = next;
     }
     return out;
 }
@@ -178,7 +181,8 @@ std::uint32_t Root(std::uint32_t pane) {
 
 std::vector<TextPane> ShownTexts(std::uint32_t pane) {
     std::vector<TextPane> out;
-    if (pane != 0) Collect(pane, 0, out);
+    int budget = kMaxPanesPerWalk;
+    if (pane != 0) Collect(pane, 0, budget, out);
     return out;
 }
 

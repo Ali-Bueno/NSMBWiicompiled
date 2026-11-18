@@ -97,6 +97,7 @@ void RunAction(hotkeys::Action action, const game::PlayerState* player) {
             speech::RepeatLast();
             break;
         case hotkeys::Action::SoundGuide:
+            SilenceGameplayCues();
             sound_guide::Start();
             break;
     }
@@ -184,7 +185,7 @@ void TickImpl() {
     map::Tick();
 
     if (sound_guide::Tick(frameSec)) {
-        SilenceGameplayCues();
+        // The guide owns the cue voices while it plays (it silenced the gameplay ones at start).
     } else if (havePlayer && !game::PlayerOutOfPlay(player.actor) && game::InNormalPlay(player)) {
         level::terrain::Tick(player, frameSec);
         level::TickCues(player, frameSec);
@@ -230,9 +231,9 @@ void HandleEvents(const AuroraEvent* events) {
 void Shutdown() {
     if (!g_initialised) return;
     try {
+        // PRISM is left loaded: this runs from atexit in a DLL, possibly under the loader lock, where
+        // freeing a library or stopping the reader's threads can hang. The process exit frees it.
         audio::CueService::Instance().Shutdown();
-        ScreenReader::Instance().Shutdown();
-        UnloadPrism();
     } catch (...) {
         static bool logged = false;
         ReportFault("Shutdown", logged);

@@ -38,15 +38,17 @@ be played without seeing the screen. Speech goes through [PRISM](https://github.
 | F9 | repeat the last thing said |
 | Shift+F9 | sound guide: each sound after its name |
 
-The game's own controls are unchanged (keyboard: arrows, Z or Space jump, X run, Enter, Esc pause;
-F10 options).
+The game's own controls are unchanged (keyboard: arrows, Z or Space jump, X run, C spin; in menus
+Enter or Z confirm and X or Backspace go back; Esc pauses a level and opens the map menu; F10
+options).
 
 ## Settings
 
 `UserData\accessibility.ini`, next to the game. The game is portable: its save, controls and
 settings all live in `UserData\` beside the exe. Keys: `language` and `game_language` (auto, es,
 en), `speech`, `menu_speech`, `terrain_cues`, `object_cues`, `goal_beacon`, `cue_volume` (0-100),
-`scan_tiles` (how far ahead walls and pits are looked for). F5-F8 save their changes there.
+`game_sounds` (the game's own pipe, item and menu sounds; false = synthesized), `scan_tiles` (how far
+ahead walls and pits are looked for). F5-F8 save their changes there.
 
 ## Building and testing
 

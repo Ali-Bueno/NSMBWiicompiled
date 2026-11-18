@@ -1109,7 +1109,6 @@ extern "C" __declspec(dllexport) int NsmbwGameMain() {
     settings_overlay::DisableStartupScreen();
     // Screen reader and audio cues (runtime/src/accessibility/): up before the guest's first frame.
     a11y::Init();
-    std::atexit(+[] { a11y::Shutdown(); });
     // Per-context action bindings (rebind capture reads events) and controller glyphs for the
     // in-text button icons; both driven by the overlay's per-frame event batch and F10 menu.
     settings_overlay::SetProductEventHook(+[](const AuroraEvent* events) noexcept {
@@ -1250,7 +1249,11 @@ extern "C" __declspec(dllexport) int NsmbwGameMain() {
         // FatalMissingGuestTarget (nsmbw_runtime_shims.cpp) calls std::exit() directly on the
         // crash path this milestone actually hits - atexit() is what makes that path (not just
         // this function's own normal/catch returns below) still shut aurora down cleanly.
-        std::atexit(+[] { aurora_shutdown(); });
+        // The accessibility cue stream is closed first: aurora's SDL_Quit destroys every stream.
+        std::atexit(+[] {
+            a11y::Shutdown();
+            aurora_shutdown();
+        });
         std::printf("[nsmbw] Window open (backend=%d, %ux%u). Clearing a few frames...\n",
                     static_cast<int>(auroraInfo.backend), auroraInfo.windowSize.width,
                     auroraInfo.windowSize.height);

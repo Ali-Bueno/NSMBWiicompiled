@@ -221,7 +221,8 @@ inline const std::optional<std::filesystem::path>& PortableRootDirectory() {
             }
             current = parent;
         }
-        return std::nullopt;
+        // Portable by default: without a marker, user state lives next to the executable.
+        return executableDirectory;
     }();
     return root;
 }

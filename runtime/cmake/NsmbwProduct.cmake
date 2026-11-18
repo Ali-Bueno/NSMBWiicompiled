@@ -377,6 +377,16 @@ if(MKW_BUILD_NSMBW)
     add_custom_command(TARGET NSMBWCompiled POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${NSMBW_DSP_COEFFICIENT_ROM}" "$<TARGET_FILE_DIR:NSMBWCompiled>/dsp_coef.bin")
 
+    # Accessibility: the PRISM screen-reader library (loaded at runtime from the exe folder) and the
+    # spoken-phrase translations (runtime/src/accessibility/localization.cpp).
+    # A target of its own, so an edited phrase file is copied even when nothing relinks.
+    add_custom_target(nsmbw_accessibility_data ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MKW_RUNTIME_SOURCE_DIR}/../prism/prism.dll" "${CMAKE_BINARY_DIR}/prism.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${MKW_RUNTIME_SOURCE_DIR}/../accessibility_lang" "${CMAKE_BINARY_DIR}/accessibility_lang")
+    add_dependencies(NSMBWCompiled nsmbw_accessibility_data)
+
     # Exe icon and version info (Windows resource). The icon is Nintendo artwork, so it lives in
     # the gitignored projects/nsmbw/branding/ and is only embedded when present locally - a clean
     # checkout still builds, just with the default icon.

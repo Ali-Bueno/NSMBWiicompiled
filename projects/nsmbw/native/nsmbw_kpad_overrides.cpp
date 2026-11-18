@@ -367,6 +367,8 @@ void RunMovieSkip() {
 }
 } // namespace
 
+extern "C" void NsmbwAccessibilityGameTick(); // runtime/src/accessibility/accessibility.cpp
+
 extern "C" int32_t NsmbwKpadRead_801ED500(uint32_t chan, uint32_t samples, uint32_t num, uint32_t errPtr, uint32_t isEx)
 {
     (void)isEx;
@@ -376,6 +378,7 @@ extern "C" int32_t NsmbwKpadRead_801ED500(uint32_t chan, uint32_t samples, uint3
             SyncOptionsMenuSoundPause(); // before the menu's own sounds: those must not be paused
             PlayOptionsMenuSounds();
             RunMovieSkip();
+            NsmbwAccessibilityGameTick(); // once per game frame, on the game thread (accessibility.cpp)
         }
         // Channels below the player count are connected remotes (nsmbw_wpad_overrides.cpp
         // marks the same channels connected for WPADProbe).

@@ -9,6 +9,7 @@
 // No window, no aurora, no input: whatever the guest code needs from those will fail loudly
 // through RuntimeCrash::FatalMissingGuestTarget (unimplemented HLE calls) rather than silently -
 // that failure, once we see it, is Phase 6's actual starting point.
+#include "accessibility/accessibility.h"
 #include "nsmbw_va.h"  // NSMBW_VA / NSMBW_FUNC: guest addresses are PAL rev 1, mapped per version
 #include "aurora_events.h"
 #include "abi_bridge.h"
@@ -1106,6 +1107,9 @@ extern "C" __declspec(dllexport) int NsmbwGameMain() {
     // through. See settings_overlay::DisableStartupScreen's own comment for why this is an
     // opt-out rather than a change to the card's default behavior.
     settings_overlay::DisableStartupScreen();
+    // Screen reader and audio cues (runtime/src/accessibility/): up before the guest's first frame.
+    a11y::Init();
+    std::atexit(+[] { a11y::Shutdown(); });
     // Per-context action bindings (rebind capture reads events) and controller glyphs for the
     // in-text button icons; both driven by the overlay's per-frame event batch and F10 menu.
     settings_overlay::SetProductEventHook(+[](const AuroraEvent* events) noexcept {
@@ -1121,6 +1125,7 @@ extern "C" __declspec(dllexport) int NsmbwGameMain() {
         }
         nsmbw_controls::HandleEvents(events);
         nsmbw_button_glyphs::HandleEvents(events);
+        a11y::HandleEvents(events);
         // NSMBW_RES_SCALE_SWITCH=<scale>@<seconds>[,...]: change the render scale live, timed from the
         // first level entered after the world map (profile 3 then 5; the title is also 5). Same call as
         // the options menu, but saves nothing and needs no keyboard focus, for testing a mid-level

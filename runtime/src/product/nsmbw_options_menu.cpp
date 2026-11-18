@@ -2,6 +2,7 @@
 // 2026-10-26): the pause window grown to 588x334 units, title in the Mario font, four tabs as pause
 // buttons, up to five rows, a yellow note when one matters (a restart, no controller), and the
 // Select / Back prompts with the player's own button glyphs.
+#include "accessibility/speech.h"
 #include "nsmbw_va.h"  // NSMBW_VA / NSMBW_FUNC: guest addresses are PAL rev 1, mapped per version
 #include "nsmbw_options_menu.h"
 
@@ -330,6 +331,8 @@ void FinishClose() {
     g.fromPause = false;
 }
 
+void SpeakFocus(bool withTab, bool interrupt = true);  // defined with the commands below
+
 void Open(const char* why, bool fromPause) {
     LogMenu("opened", why);
     g.open = true;
@@ -340,6 +343,8 @@ void Open(const char* why, bool fromPause) {
     g.heldButton = -1;
     g.stick = {};
     SetGameStopped(true);
+    a11y::speech::Post("Options", true);
+    SpeakFocus(true, false);
 }
 
 // A new screen comes in the way a new window does in the game.
@@ -496,11 +501,65 @@ bool BindingsCommand(Cmd cmd, const char* why) {
     return false;
 }
 
+// ---- Screen reader ---------------------------------------------------------------------------------
+// The menu is drawn by the host, so it says its own focus (runtime/src/accessibility/speech.h).
+std::string RowValue(const Row& r) {
+    switch (r.kind) {
+    case Kind::Picker: case Kind::Player:
+        return r.options.empty() ? std::string() : r.options[size_t(std::clamp(r.value, 0, int(r.options.size()) - 1))];
+    case Kind::Toggle: return r.value != 0 ? "On" : "Off";
+    case Kind::Slider: return std::to_string(r.value) + "%";
+    }
+    return {};
+}
+
+void SpeakOptionsFocus(bool withTab, bool interrupt) {
+    std::string text = withTab ? std::string(kTabs[size_t(g.tab)]) + " tab. " : std::string();
+    const std::vector<Row> rows = BuildRows(g.tab);
+    if (!rows.empty()) {
+        const Row& r = rows[size_t(std::clamp(g.focus[size_t(g.tab)], 0, int(rows.size()) - 1))];
+        text += r.label + ": " + RowValue(r);
+        if (r.kind == Kind::Player && g.rebindFocused) text += ", Rebind button";
+        if (!r.note.empty()) text += ". " + r.note;
+    }
+    a11y::speech::Post(text, interrupt);
+}
+
+void SpeakBindingsFocus(bool withTab, bool interrupt) {
+    const std::vector<nsmbw_controls::BoundAction> rows =
+        nsmbw_controls::Bindings(g_bind.player, kBindContexts[size_t(g_bind.tab)]);
+    std::string text = withTab ? "Player " + std::to_string(g_bind.player + 1) + " buttons, " +
+                                     kBindTabs[size_t(g_bind.tab)] + ". "
+                               : std::string();
+    if (!rows.empty()) {
+        const nsmbw_controls::BoundAction& a = rows[size_t(std::clamp(g_bind.row, 0, int(rows.size()) - 1))];
+        const bool key = g_bind.slot >= 2;
+        const std::string& bound = key ? a.keys[size_t(g_bind.slot % 2)] : a.pads[size_t(g_bind.slot % 2)];
+        text += g_bind.capturing ? "Press the new control for " + a.label
+                                 : a.label + ", " + (key ? "key " : "controller ") + std::to_string(g_bind.slot % 2 + 1) +
+                                       ": " + (bound.empty() ? "none" : bound);
+    }
+    a11y::speech::Post(text, interrupt);
+}
+
+void SpeakFocus(bool withTab, bool interrupt) {
+    if (!g.open || g.closing) return;
+    if (g_screen == Screen::Options) SpeakOptionsFocus(withTab, interrupt);
+    else SpeakBindingsFocus(withTab, interrupt);
+}
+
 bool Dispatch(Cmd cmd, const char* why) {
     static constexpr const char* kNames[] = {"up", "down", "left", "right", "select", "back",
                                              "tab-", "tab+", "clear", "reset", "exit"};
     LogMenu(kNames[int(cmd)], why);
-    return g_screen == Screen::Options ? OptionsCommand(cmd, why) : BindingsCommand(cmd, why);
+    const Screen before = g_screen;
+    const bool closed = g_screen == Screen::Options ? OptionsCommand(cmd, why) : BindingsCommand(cmd, why);
+    if (closed) {
+        a11y::speech::Post("Options closed", true);
+    } else {
+        SpeakFocus(cmd == Cmd::TabPrev || cmd == Cmd::TabNext || g_screen != before);
+    }
+    return closed;
 }
 
 // Select and Back follow the menu bindings (Options > Controls), the ones the Select / Back

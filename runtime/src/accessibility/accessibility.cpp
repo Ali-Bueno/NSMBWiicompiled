@@ -10,6 +10,7 @@
 #include "accessibility/a11y_log.h"
 #include "accessibility/audio/cue_service.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/game/nsmbw_game.h"
 #include "accessibility/hotkeys.h"
 #include "accessibility/level/actors.h"
@@ -86,7 +87,9 @@ void RunAction(hotkeys::Action action, const game::PlayerState* player) {
             cfg.cueVolume = std::clamp(cfg.cueVolume + step, 0, 100);
             config::Save();
             ApplyVolume();
-            audio::CueService::Instance().PlayOneShot(audio::CueChannel::Ui, audio::cues::Confirm());
+            if (!cfg.gameSounds || !game::sound::PlaySystem(audio::cues::kGameCursorLabel)) {
+                audio::CueService::Instance().PlayOneShot(audio::CueChannel::Ui, audio::cues::Confirm());
+            }
             speech::Say(loc::Format("volume", {{"n", std::to_string(cfg.cueVolume)}}), true);
             break;
         }
@@ -116,6 +119,14 @@ void LogPlayer(const game::PlayerState& p) {
     if (!on || ++frames % 60 != 0) return;
     if (frames % 300 == 0) {
         RT_LOGF(RT_TAG_A11Y, "nearby: %s | %s\n", level::DescribeNearby(p).c_str(), level::monitor::Progress(p).c_str());
+    }
+    static bool soundsLogged = false;
+    if (!soundsLogged) {
+        soundsLogged = true;
+        game::sound::LogLabels();
+        RT_LOGF(RT_TAG_A11Y, "game sound test: positional %d, system %d\n",
+                game::sound::PlayAt("SE_OBJ_ITEM_APPEAR", p.pos.x + 64.0f, p.pos.y) ? 1 : 0,
+                game::sound::PlaySystem("SE_SYS_CURSOR") ? 1 : 0);
     }
     static std::uint8_t loggedArea = 0xFF;
     if (game::AreaNo() != loggedArea) {

@@ -113,6 +113,14 @@ inline CueSpec Item(float pan, float tilesAbove, float gain) {
     return c;
 }
 inline constexpr float kItemIntervalSec = 1.1f;
+// The game's own sounds used as cues (labels in the disc's sound archive). They repeat less often
+// than the synthesized ones: they are longer and carry their own meaning.
+inline constexpr char kGameItemLabel[] = "SE_OBJ_ITEM_APPEAR";
+inline constexpr float kGameItemIntervalSec = 2.0f;
+inline constexpr char kGamePipeLabel[] = "SE_PLY_DOKAN_IN_OUT";
+inline constexpr float kGamePipeIntervalSec = 2.6f;
+inline constexpr char kGameInvalidLabel[] = "SE_SYS_INVALID";
+inline constexpr char kGameCursorLabel[] = "SE_SYS_CURSOR";
 
 // The goal pole: a soft tick from its side.
 inline CueSpec Goal(float pan) {

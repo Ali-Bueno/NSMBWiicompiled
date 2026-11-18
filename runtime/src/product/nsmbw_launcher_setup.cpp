@@ -442,6 +442,10 @@ bool RunSetupWindow() {
     BuildControls(g_window);
     ShowWindow(g_window, SW_SHOWNORMAL);
     SetForegroundWindow(g_window);
+    // Keyboard and screen-reader users start on a control, not on the bare window: Play when a disc
+    // is already set, otherwise the disc-image button.
+    const HWND play = GetDlgItem(g_window, kPlay);
+    SetFocus(IsWindowEnabled(play) ? play : GetDlgItem(g_window, kDiscImage));
 
     MSG msg;
     while (!g_state.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {

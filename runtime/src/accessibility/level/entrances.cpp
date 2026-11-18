@@ -6,6 +6,7 @@
 #include "accessibility/a11y_config.h"
 #include "accessibility/a11y_log.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/guest_read.h"
 #include "accessibility/level/actors.h"
 #include "accessibility/localization.h"
@@ -118,6 +119,10 @@ void TickCue(const game::PlayerState& player, float frameSec) {
     if (pipes.empty()) return;
     const Pipe& p = pipes.front();
     const float dx = (p.x - player.pos.x) / game::kTile, dy = (p.y - player.pos.y) / game::kTile;
+    if (config::Get().gameSounds && game::sound::PlayAt(audio::cues::kGamePipeLabel, p.x, p.y)) {
+        g_cueTimer = audio::cues::kGamePipeIntervalSec;
+        return;
+    }
     audio::CueService::Instance().PlayOneShot(audio::CueChannel::Pipe,
                                               audio::cues::Pipe(audio::cues::PanFor(dx, kCueRangeTiles), dy));
 }

@@ -5,6 +5,7 @@
 
 #include "accessibility/a11y_config.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/level/entrances.h"
 #include "accessibility/localization.h"
 
@@ -59,9 +60,12 @@ int Round(float v) { return static_cast<int>(std::lround(v)); }
 }  // namespace
 
 std::string Where(int dx, int dy) {
-    std::string where = dx == 0 ? loc::Get("here")
-                                : std::to_string(std::abs(dx)) + " " + loc::Get(dx < 0 ? "to_left" : "to_right");
-    if (std::abs(dy) >= 2) where += ", " + std::to_string(std::abs(dy)) + " " + loc::Get(dy < 0 ? "below" : "above");
+    // Within a tile vertically counts as level with the player.
+    const bool level = std::abs(dy) < 2;
+    const std::string vertical = std::to_string(std::abs(dy)) + " " + loc::Get(dy < 0 ? "below" : "above");
+    if (dx == 0) return level ? loc::Get("here") : vertical;
+    std::string where = std::to_string(std::abs(dx)) + " " + loc::Get(dx < 0 ? "to_left" : "to_right");
+    if (!level) where += ", " + vertical;
     return where;
 }
 
@@ -146,10 +150,15 @@ void TickCues(const game::PlayerState& player, float frameSec) {
                 if (std::fabs(n.dx) > kItemRangeX || std::fabs(n.dy) > kItemRangeY) continue;
                 itemPlayed = true;
                 if (g_timers.item <= 0.0f) {
-                    cues.PlayOneShot(audio::CueChannel::Item,
-                                     audio::cues::Item(audio::cues::PanFor(n.dx, kItemRangeX), n.dy,
-                                                       audio::cues::GainFor(n.distance, kItemRangeX)));
-                    g_timers.item = audio::cues::kItemIntervalSec;
+                    if (cfg.gameSounds &&
+                        game::sound::PlayAt(audio::cues::kGameItemLabel, n.info.center.x, n.info.center.y)) {
+                        g_timers.item = audio::cues::kGameItemIntervalSec;
+                    } else {
+                        cues.PlayOneShot(audio::CueChannel::Item,
+                                         audio::cues::Item(audio::cues::PanFor(n.dx, kItemRangeX), n.dy,
+                                                           audio::cues::GainFor(n.distance, kItemRangeX)));
+                        g_timers.item = audio::cues::kItemIntervalSec;
+                    }
                 }
             }
         }

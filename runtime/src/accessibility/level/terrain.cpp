@@ -31,6 +31,8 @@ constexpr int kUrgentColumns = 2;
 constexpr int kWaterLava = 3;
 constexpr int kWaterPoison = 4;
 constexpr float kHazardProbeDepth = 3.0f;
+constexpr float kCeilingProbeTiles = 0.25f;  // ceilings are looked for from just above the feet
+constexpr float kCeilingMargin = 1.0f;       // world units below a ceiling a ground probe starts
 
 struct State {
     float wallTimer[2] = {};  // 0 left, 1 right
@@ -76,8 +78,15 @@ void TickWalls(const game::PlayerState& p, int ahead, float frameSec, float& ahe
 }
 
 Edge ClassifyColumn(const game::PlayerState& p, float x) {
+    // The probe starts above the feet to find steps, but never inside a low ceiling over that
+    // column (a block there would read as a step up).
+    float start = p.pos.y + kProbeAboveFeet * kTile;
+    float ceiling = 0.0f;
+    if (game::CeilingAbove(x, p.pos.y + kCeilingProbeTiles * kTile, p.layer, ceiling) && ceiling < start) {
+        start = ceiling - kCeilingMargin;
+    }
     float h = 0.0f;
-    const bool ground = game::GroundBelow(x, p.pos.y + kProbeAboveFeet * kTile, p.layer, h);
+    const bool ground = game::GroundBelow(x, start, p.layer, h);
     if (!ground) {
         return IsHazardWater(game::WaterAt(x, p.pos.y - kHazardProbeDepth * kTile, p.layer)) ? Edge::Hazard : Edge::Pit;
     }

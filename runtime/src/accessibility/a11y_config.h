@@ -15,6 +15,7 @@ struct Settings {
     bool terrainCues = true;     // walls, ledges, pits, ground below
     bool objectCues = true;      // enemies, items, blocks
     bool goalBeacon = true;      // a soft tick panned towards the level's goal
+    bool gameSounds = true;      // use the game's own sound effects where one fits (pipes, items)
     int cueVolume = 70;          // 0..100, master level of every accessibility cue
     int scanTiles = 6;           // how far ahead walls and pits are looked for, in tiles
     bool menuSpeech = true;      // read focused menu items and new on-screen text

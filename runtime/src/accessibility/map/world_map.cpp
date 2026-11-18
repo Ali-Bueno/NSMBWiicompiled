@@ -2,7 +2,10 @@
 
 #include <cmath>
 
+#include "accessibility/a11y_config.h"
 #include "accessibility/a11y_log.h"
+#include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/game/guest_call.h"
 #include "accessibility/game/nsmbw_game.h"
 #include "accessibility/guest_read.h"
@@ -83,6 +86,7 @@ void TickNoPath() {
     }
     if (++g_pressFrames >= kNoPathFrames) {
         g_pressFrames = -1;
+        if (config::Get().gameSounds) game::sound::PlaySystem(audio::cues::kGameInvalidLabel);
         speech::Say(loc::Get("map_no_path"), true);
     }
 }

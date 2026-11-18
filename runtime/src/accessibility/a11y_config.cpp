@@ -43,6 +43,7 @@ void Apply(std::string_view key, std::string_view value) {
     else if (key == "terrain_cues") s.terrainCues = ParseBool(value, s.terrainCues);
     else if (key == "object_cues") s.objectCues = ParseBool(value, s.objectCues);
     else if (key == "goal_beacon") s.goalBeacon = ParseBool(value, s.goalBeacon);
+    else if (key == "game_sounds") s.gameSounds = ParseBool(value, s.gameSounds);
     else if (key == "cue_volume") s.cueVolume = ParseInt(value, s.cueVolume, 0, 100);
     else if (key == "scan_tiles") s.scanTiles = ParseInt(value, s.scanTiles, 2, 12);
     else RT_LOGF(RT_TAG_A11Y, "config: unknown key '%.*s'\n", int(key.size()), key.data());
@@ -96,6 +97,7 @@ void Save() {
          << "terrain_cues = " << Bool(s.terrainCues) << "\n"
          << "object_cues = " << Bool(s.objectCues) << "\n"
          << "goal_beacon = " << Bool(s.goalBeacon) << "\n"
+         << "game_sounds = " << Bool(s.gameSounds) << "   # the game's own sounds for pipes, items, menus\n"
          << "cue_volume = " << s.cueVolume << "   # 0-100\n"
          << "scan_tiles = " << s.scanTiles << "   # 2-12, how far ahead walls and pits are found\n";
 }

@@ -2,7 +2,9 @@
 
 #include <string>
 
+#include "accessibility/a11y_config.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/localization.h"
 #include "accessibility/speech.h"
 
@@ -16,6 +18,7 @@ struct Entry {
     const char* phraseKey;
     CueChannel channel;
     audio::CueSpec (*make)();
+    const char* gameLabel = nullptr;  // the game's own sound, when the cue uses one
 };
 
 const Entry kEntries[] = {
@@ -26,9 +29,9 @@ const Entry kEntries[] = {
     {"guide_hazard", CueChannel::Hazard, [] { return Hazard(0.6f); }},
     {"guide_ground", CueChannel::Ground, [] { audio::CueSpec c = GroundBelow(2.0f); c.durationSec = 0.5f; return c; }},
     {"guide_enemy", CueChannel::Enemy0, [] { return Enemy(0.5f, 0.0f, 1.0f); }},
-    {"guide_item", CueChannel::Item, [] { return Item(-0.5f, 0.0f, 1.0f); }},
+    {"guide_item", CueChannel::Item, [] { return Item(-0.5f, 0.0f, 1.0f); }, kGameItemLabel},
     {"guide_goal", CueChannel::Goal, [] { return Goal(0.7f); }},
-    {"guide_pipe", CueChannel::Pipe, [] { return Pipe(-0.6f, 0.0f); }},
+    {"guide_pipe", CueChannel::Pipe, [] { return Pipe(-0.6f, 0.0f); }, kGamePipeLabel},
 };
 constexpr int kCount = static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0]));
 // No speech-finished signal is available from every backend, so the pause before each cue is
@@ -71,7 +74,9 @@ bool Tick(float frameSec) {
         return true;
     }
     const Entry& e = kEntries[g_index];
-    audio::CueService::Instance().PlayOneShot(e.channel, e.make());
+    if (e.gameLabel == nullptr || !config::Get().gameSounds || !game::sound::PlaySystem(e.gameLabel)) {
+        audio::CueService::Instance().PlayOneShot(e.channel, e.make());
+    }
     g_cuePending = false;
     g_wait = kAfterCueSec;
     ++g_index;

@@ -62,12 +62,24 @@ inline CueSpec GroundBelow(int dropTiles, int kind) {
     c.lowpassHz = kind == 2 ? 1400.0f : 900.0f;
     return c;
 }
-// In the air over a pit (nothing below): two low thuds, repeated by the caller.
-inline Composite Pit() {
-    return {Tone(Waveform::Square, 95.0f, 80.0f, 0.12f, 0.45f, 0.0f),
-            Tone(Waveform::Square, 95.0f, 80.0f, 0.12f, 0.45f, 0.0f, 0.16f)};
+// In the air over a hole (nothing below): held, gusting wind on the ground-hum channel.
+inline CueSpec PitWind() {
+    CueSpec c;
+    c.shape = Waveform::Noise;
+    c.frequencyHz = 1.0f;
+    c.amplitude = 0.3f;
+    c.lowpassHz = 600.0f;
+    c.pulseHz = 1.5f;
+    c.pulseDepth = 0.5f;
+    c.attackSec = 0.08f;
+    return c;
 }
-inline constexpr float kPitRepeatSec = 0.45f;
+// The sound guide plays the held wind for a moment.
+inline Composite Pit() {
+    CueSpec c = PitWind();
+    c.durationSec = 1.2f;
+    return {c};
+}
 // In the air, a higher platform has come in under Mario.
 inline Composite PlatformUnder() { return WoodKnock(560.0f, 0.4f, 0.0f); }
 // In the air, ground again after a pit: a two-note "safe".
@@ -75,21 +87,47 @@ inline Composite GroundAfterPit() {
     return {Tone(Waveform::Triangle, 784.0f, 784.0f, 0.06f, 0.3f, 0.0f),
             Tone(Waveform::Triangle, 1175.0f, 1175.0f, 0.08f, 0.3f, 0.0f, 0.07f)};
 }
-// Feet on the ground again.
-inline Composite Landing() { return {Tone(Waveform::Sine, 170.0f, 80.0f, 0.09f, 0.45f, 0.0f)}; }
 
 // ---- Edges ahead (on the ground) --------------------------------------------------------------
 
-inline Composite EdgePit(float pan) { return {Tone(Waveform::Saw, 300.0f, 150.0f, 0.25f, 0.4f, pan)}; }
-inline Composite EdgeHazard(float pan) { return {Tone(Waveform::Saw, 200.0f, 200.0f, 0.18f, 0.4f, pan)}; }
-inline Composite EdgeDrop(float pan) { return {Tone(Waveform::Sine, 700.0f, 350.0f, 0.18f, 0.3f, pan)}; }
-inline Composite EdgeStep(float pan) { return {Tone(Waveform::Sine, 350.0f, 700.0f, 0.15f, 0.3f, pan)}; }
+// Each edge has its own family, so none is mistaken for another:
+// a pit is a low noise rumble (a hole), a drop is wood knocks walking down a stair, a step up is
+// knocks walking up, lava is the game's lava splash (synthesized: a rough low buzz).
+// A hole ahead: a gust of wind (the player asked for wind for holes, 2026-11-18).
+inline Composite EdgePit(float pan) {
+    CueSpec gust = Tone(Waveform::Noise, 1.0f, 1.0f, 0.45f, 0.5f, pan);
+    gust.lowpassHz = 700.0f;
+    gust.attackSec = 0.15f;
+    gust.releaseSec = 0.35f;
+    gust.pulseHz = 3.0f;
+    gust.pulseDepth = 0.4f;
+    return {gust};
+}
+inline Composite EdgeHazard(float pan) {
+    CueSpec buzz = Tone(Waveform::Saw, 90.0f, 90.0f, 0.3f, 0.35f, pan);
+    buzz.pulseHz = 12.0f;
+    buzz.pulseDepth = 0.8f;
+    return {buzz};
+}
+inline Composite EdgeDrop(float pan) {
+    Composite c = WoodKnock(520.0f, 0.4f, pan);
+    Append(c, WoodKnock(390.0f, 0.36f, pan, 0.11f));
+    Append(c, WoodKnock(290.0f, 0.32f, pan, 0.22f));
+    return c;
+}
+inline Composite EdgeStep(float pan) {
+    Composite c = WoodKnock(390.0f, 0.4f, pan);
+    Append(c, WoodKnock(520.0f, 0.4f, pan, 0.11f));
+    return c;
+}
+inline constexpr char kGameLavaLabel[] = "SE_OBJ_CMN_SPLASH_LAVA";
 
 // A platform above Mario that he can jump onto: two knocks, a semitone higher per tile up.
 inline Composite PlatformAbove(int tilesUp) {
-    const float f = 640.0f * Semitones(static_cast<float>(tilesUp));
-    Composite c = WoodKnock(f, 0.26f, 0.0f);
-    Append(c, WoodKnock(f, 0.22f, 0.0f, 0.09f));
+    const float f = 1250.0f * Semitones(static_cast<float>(tilesUp));
+    Composite c = WoodKnock(f, 0.22f, 0.0f);
+    Append(c, WoodKnock(f, 0.18f, 0.0f, 0.07f));
+    Append(c, WoodKnock(f, 0.14f, 0.0f, 0.14f));
     return c;
 }
 inline constexpr float kPlatformAboveCooldownSec = 1.1f;
@@ -209,15 +247,44 @@ inline Composite Boss(float pan, float tilesAbove) {
 }
 inline float BossInterval(float tiles) { return tiles < 4.0f ? 0.8f : tiles < 8.0f ? 1.0f : 1.4f; }
 
+// The countdown to a jump: three short ticks, each a step higher (beat 1-3), a quarter second
+// apart, then one of the jump cues below on the beat where Mario should leave the ground.
+inline Composite CountTick(float pan, int beat) {
+    // Unfiltered noise: a hi-hat click, the only sound of its kind, a little louder each beat.
+    return {Tone(Waveform::Noise, 1.0f, 1.0f, 0.025f, 0.16f + 0.06f * static_cast<float>(beat), pan)};
+}
+// A bright major chord: the moment to jump.
+inline Composite Chord(float root, float gain, float pan, float delay = 0.0f) {
+    return {Tone(Waveform::Square, root, root, 0.13f, gain, pan, delay),
+            Tone(Waveform::Square, root * Semitones(4.0f), root * Semitones(4.0f), 0.13f, gain * 0.8f, pan, delay),
+            Tone(Waveform::Square, root * Semitones(7.0f), root * Semitones(7.0f), 0.13f, gain * 0.8f, pan, delay)};
+}
+inline Composite Countdown(Composite accent) {
+    Composite c;
+    for (int beat = 1; beat <= 3; ++beat) {
+        Composite tick = CountTick(0.5f, beat);
+        for (CueSpec& t : tick) t.delaySec = 0.25f * static_cast<float>(beat - 1);
+        Append(c, tick);
+    }
+    for (CueSpec& a : accent) a.delaySec += 0.75f;
+    Append(c, accent);
+    return c;
+}
+
 // "Jump now": a stompable enemy walking into Mario will be under his feet if he jumps now.
-inline Composite JumpNow(float pan) { return {Tone(Waveform::Square, 784.0f, 1568.0f, 0.08f, 0.32f, pan)}; }
+inline Composite JumpNow(float pan) { return Chord(1047.0f, 0.22f, pan); }
 // "Jump high now": the enemy is up on a ledge; only a full jump (button held) lands on it.
 inline Composite JumpHigh(float pan) {
-    return {Tone(Waveform::Square, 784.0f, 1568.0f, 0.08f, 0.32f, pan),
-            Tone(Waveform::Square, 1175.0f, 2349.0f, 0.10f, 0.28f, pan, 0.09f)};
+    Composite c = Chord(1047.0f, 0.22f, pan);
+    Append(c, Chord(1568.0f, 0.22f, pan, 0.14f));
+    return c;
 }
 // "Jump over it": the same moment for an enemy that hurts from above.
-inline Composite JumpOver(float pan) { return {Tone(Waveform::Saw, 392.0f, 1175.0f, 0.12f, 0.30f, pan)}; }
+inline Composite JumpOver(float pan) {
+    // A harsh rising tritone: jump, but not onto it.
+    return {Tone(Waveform::Saw, 330.0f, 990.0f, 0.2f, 0.28f, pan),
+            Tone(Waveform::Saw, 330.0f * Semitones(6.0f), 990.0f * Semitones(6.0f), 0.2f, 0.22f, pan)};
+}
 // Falling right onto a stompable enemy: a bright ding.
 inline Composite StompTarget(float pan) { return {Tone(Waveform::Sine, 1760.0f, 2349.0f, 0.07f, 0.30f, pan)}; }
 // Falling onto something that hurts: a falling buzz, steer away.
@@ -231,6 +298,37 @@ inline Composite Item(float pan, float tilesAbove, float gain) {
     return {Tone(Waveform::Sine, f, f * Semitones(5.0f), 0.09f, 0.25f * gain, pan)};
 }
 inline constexpr float kItemIntervalSec = 1.1f;
+// A ? block, as the game sounds a coin popping out of one.
+inline constexpr char kGameBlockLabel[] = "SE_OBJ_COIN_POP_UP";
+inline constexpr float kMovingItemIntervalSec = 0.35f;
+// A ? block nearby: a soft two-note chirp from its side, higher the higher it is.
+inline Composite BlockBeacon(float pan, float tilesUp) {
+    const float f = 988.0f * Semitones(std::clamp(tilesUp, 0.0f, 8.0f));
+    const float g = f * Semitones(5.0f);
+    return {Tone(Waveform::Square, f, f, 0.05f, 0.12f, pan), Tone(Waveform::Square, g, g, 0.08f, 0.12f, pan, 0.06f)};
+}
+inline constexpr float kBlockBeaconSec = 1.6f;
+// Right under a ? block: the same chirp, louder and twice, centred: stop and jump to hit it.
+inline Composite UnderBlock(float tilesUp) {
+    Composite c = BlockBeacon(0.0f, tilesUp);
+    Append(c, BlockBeacon(0.0f, tilesUp));
+    for (size_t i = 0; i < c.size(); ++i) {
+        c[i].amplitude = 0.3f;
+        if (i >= 2) c[i].delaySec += 0.18f;
+    }
+    return c;
+}
+inline constexpr float kUnderBlockRepeatSec = 1.5f;
+// An item on the move, ticking fast (demo for the sound guide).
+inline Composite MovingItemDemo() {
+    Composite c;
+    for (int i = 0; i < 4; ++i) {
+        Composite t = Item(0.6f, 0.0f, 1.0f);
+        for (CueSpec& x : t) x.delaySec = kMovingItemIntervalSec * static_cast<float>(i);
+        Append(c, t);
+    }
+    return c;
+}
 // Lined up right under an item: a rising bell, lower the higher the item is.
 inline Composite UnderItem(float tilesAbove) {
     const float f = 2093.0f * Semitones(-std::clamp(tilesAbove, 0.0f, 12.0f));
@@ -249,7 +347,13 @@ inline constexpr float kGamePipeIntervalSec = 2.6f;
 inline constexpr char kGameCursorLabel[] = "SE_SYS_CURSOR";
 
 // The goal pole: a soft tick from its side.
-inline Composite Goal(float pan) { return {Tone(Waveform::Triangle, 784.0f, 784.0f, 0.06f, 0.14f, pan)}; }
+inline Composite Goal(float pan) {
+    CueSpec a = Tone(Waveform::Sine, 523.0f, 523.0f, 0.6f, 0.16f, pan);
+    a.releaseSec = 0.5f;
+    CueSpec b = Tone(Waveform::Sine, 523.0f * 2.76f, 523.0f * 2.76f, 0.3f, 0.06f, pan);
+    b.releaseSec = 0.3f;
+    return {a, b};
+}
 inline constexpr float kGoalIntervalSec = 2.0f;
 
 // An enterable pipe (synthesized fallback): a low hollow bloop, higher when above.

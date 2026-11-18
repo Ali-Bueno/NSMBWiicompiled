@@ -64,9 +64,7 @@ float FramesToPeak(const float (&arc)[N]) {
     return static_cast<float>(std::max_element(arc, arc + N) - arc + 1);
 }
 
-// The cue comes a player's reaction time (about 0.2 s) before the ideal take-off, and is still
-// worth giving a few frames after it.
-constexpr float kReactionFrames = 12.0f;
+// The accent is still worth giving this many frames after the ideal take-off.
 constexpr float kCueLateFrames = 4.0f;
 // Mario's and a small enemy's half widths together: closer than this (centre to centre) they touch.
 // From the first 1-1 trace, Mario landing 13 units beside a goomba was hurt.
@@ -93,78 +91,135 @@ constexpr int kTraceFrames = 70;
 int g_traceFrames = 0;
 std::uint32_t g_traceActor = 0;
 
-std::set<std::uint32_t> g_jumpCued;   // enemies already given their jump cue on this approach
-std::uint32_t g_stompCued = 0;        // the enemy of the last stomp/danger cue in this fall
+std::uint32_t g_stompCued = 0;  // the enemy of the last stomp/danger cue in this fall
 
-void TickGround(const game::PlayerState& p, const std::vector<NearbyActor>& near) {
-    std::set<std::uint32_t> stillApproaching;
-    for (const NearbyActor& n : near) {
-        if (!IsHostile(n.category) || n.category == ActorCategory::Boss) continue;
-        // The enemy's top, relative to Mario's feet (its centre is half way up its body).
-        const float top = n.info.pos.y + 2.0f * (n.info.center.y - n.info.pos.y) - p.pos.y;
-        const float feet = n.info.pos.y - p.pos.y;
-        if (feet > kAboveMaxUnits || feet < -kBelowMaxUnits) continue;
-        const float dxUnits = n.info.center.x - p.pos.x;
-        const float side = dxUnits > 0.0f ? 1.0f : -1.0f;
-        const float closing = (p.speed.x - n.info.delta.x) * side;
-        if (closing < kMinClosingSpeed) continue;
-        const float meet = std::fabs(dxUnits) / closing;  // frames until Mario is over its centre
-        if (meet > kTrackFrames) continue;
-        stillApproaching.insert(n.info.actor);
-        if (g_jumpCued.count(n.info.actor) != 0) continue;
+// The countdown: three ticks a beat apart, then the accent on the take-off frame, for the one
+// enemy whose take-off comes first. A rhythm lets the player jump on the beat instead of
+// reacting to a single sound (a reaction costs about 0.2 s; a beat can be met on time).
+constexpr float kBeatFrames = 15.0f;  // 0.25 s
+constexpr int kBeats = 4;             // 3 ticks + the accent
+std::uint32_t g_countActor = 0;
+constexpr float kNoTakeOff = 1.0e9f;
+float g_nextTakeOff = kNoTakeOff;  // frames until the first enemy jump, for other cues to yield
+int g_beatsDone = 0;
 
-        // When to take off, in frames from now. A stomp needs Mario's feet above the enemy's top by
-        // the time they touch (`touch`), and coming down onto it while they still overlap; ideally
-        // over its centre (`meet`). A slow enemy creeping up overlaps for long, a fast one briefly.
-        // A dangerous enemy is cleared at the top of a full jump, over its centre.
-        const bool danger = n.category == ActorCategory::Danger;
-        const float touch = std::max(std::fabs(dxUnits) - kTouchUnits, 0.0f) / closing;
-        float takeOff = 0.0f, latest = 0.0f;
-        bool high = false;
-        if (danger) {
-            high = true;
-            takeOff = meet - FramesToPeak(kFullArc);
-            const float rise = FramesToRise(kFullArc, top);
-            if (rise < 0.0f) continue;
-            latest = touch - rise;
-        } else {
-            float land = FramesToLandAt(kTapArc, top);
-            float rise = FramesToRise(kTapArc, top);
-            if (land < 0.0f) {
-                high = true;
-                land = FramesToLandAt(kFullArc, top);
-                rise = FramesToRise(kFullArc, top);
-            }
-            if (land < 0.0f || rise < 0.0f) continue;  // out of reach: the radar still tells where it is
-            latest = touch - rise;                     // later and it walks into Mario's side
-            takeOff = std::clamp(meet - land, touch - land, latest);
-        }
-        // Cue a reaction time ahead of the take-off, and not once it can no longer work.
-        if (takeOff > kReactionFrames || latest < kReactionFrames - kCueLateFrames) continue;
+enum class JumpKind { Tap, High, Over };
 
+struct Candidate {
+    const NearbyActor* actor = nullptr;
+    float takeOff = 0.0f;  // frames from now
+    float latest = 0.0f;   // the last take-off that still works
+    JumpKind kind = JumpKind::Tap;
+    float side = 1.0f;
+    float top = 0.0f, meet = 0.0f;
+};
 
-        const float pan = side * 0.7f;
-        if (danger) {
+// When to take off for this enemy, or false if it is not coming at Mario or cannot be jumped.
+bool Plan(const game::PlayerState& p, const NearbyActor& n, Candidate& out) {
+    if (!IsHostile(n.category) || n.category == ActorCategory::Boss) return false;
+    // The enemy's top, relative to Mario's feet (its centre is half way up its body).
+    const float top = n.info.pos.y + 2.0f * (n.info.center.y - n.info.pos.y) - p.pos.y;
+    const float feet = n.info.pos.y - p.pos.y;
+    if (feet > kAboveMaxUnits || feet < -kBelowMaxUnits) return false;
+    const float dxUnits = n.info.center.x - p.pos.x;
+    const float side = dxUnits > 0.0f ? 1.0f : -1.0f;
+    const float closing = (p.speed.x - n.info.delta.x) * side;
+    if (closing < kMinClosingSpeed) return false;
+    const float meet = std::fabs(dxUnits) / closing;  // frames until Mario is over its centre
+    if (meet > kTrackFrames) return false;
+
+    // A stomp needs Mario's feet above the enemy's top by the time they touch (`touch`), and
+    // coming down onto it while they still overlap; ideally over its centre (`meet`). A slow
+    // enemy creeping up overlaps for long, a fast one briefly. A dangerous enemy is cleared at
+    // the top of a full jump, over its centre.
+    const float touch = std::max(std::fabs(dxUnits) - kTouchUnits, 0.0f) / closing;
+    out = Candidate{};
+    out.actor = &n;
+    out.side = side;
+    out.top = top;
+    out.meet = meet;
+    if (n.category == ActorCategory::Danger) {
+        const float rise = FramesToRise(kFullArc, top);
+        if (rise < 0.0f) return false;
+        out.kind = JumpKind::Over;
+        out.latest = touch - rise;
+        out.takeOff = std::min(meet - FramesToPeak(kFullArc), out.latest);
+        return true;
+    }
+    float land = FramesToLandAt(kTapArc, top);
+    float rise = FramesToRise(kTapArc, top);
+    if (land < 0.0f) {
+        out.kind = JumpKind::High;
+        land = FramesToLandAt(kFullArc, top);
+        rise = FramesToRise(kFullArc, top);
+    }
+    if (land < 0.0f || rise < 0.0f) return false;  // out of reach: the radar still tells where it is
+    out.latest = touch - rise;                     // later and it walks into Mario's side
+    out.takeOff = std::clamp(meet - land, touch - land, out.latest);
+    return true;
+}
+
+void PlayAccent(const Candidate& c) {
+    const float pan = c.side * 0.7f;
+    switch (c.kind) {
+        case JumpKind::Over:
             audio::cues::Play(audio::cues::JumpOver(pan));
             autopilot::Note(autopilot::Cue::JumpOver);
-        } else if (high) {
+            break;
+        case JumpKind::High:
             audio::cues::Play(audio::cues::JumpHigh(pan));
             autopilot::Note(autopilot::Cue::JumpHigh);
-        } else {
+            break;
+        case JumpKind::Tap:
             audio::cues::Play(audio::cues::JumpNow(pan));
             autopilot::Note(autopilot::Cue::JumpNow);
-        }
-        g_jumpCued.insert(n.info.actor);
-        g_traceActor = n.info.actor;
-        g_traceFrames = kTraceFrames;
-        if (LogCombat()) {
-            RT_LOGF(RT_TAG_A11Y, "combat: jump cue profile=%u high=%d top=%.1f meet=%.1f takeoff=%.1f\n", n.info.profile,
-                    high ? 1 : 0, top, meet, takeOff);
+            break;
+    }
+}
+
+void TickGround(const game::PlayerState& p, const std::vector<NearbyActor>& near) {
+    g_nextTakeOff = kNoTakeOff;
+    Candidate best;
+    bool have = false;
+    for (const NearbyActor& n : near) {
+        Candidate c;
+        if (!Plan(p, n, c) || c.latest < -kCueLateFrames) continue;
+        if (!have || c.takeOff < best.takeOff) {
+            best = c;
+            have = true;
         }
     }
-    // An enemy leaves the cued set once it is no longer closing in: the next approach cues again.
-    for (auto it = g_jumpCued.begin(); it != g_jumpCued.end();) {
-        it = stillApproaching.count(*it) ? std::next(it) : g_jumpCued.erase(it);
+    if (!have) {
+        g_countActor = 0;
+        g_beatsDone = 0;
+        return;
+    }
+    g_nextTakeOff = best.takeOff;
+    // Beats due by now: one per kBeatFrames before the take-off, the last on it.
+    int due = 0;
+    for (int i = 0; i < kBeats; ++i) {
+        if (best.takeOff <= kBeatFrames * static_cast<float>(kBeats - 1 - i)) due = i + 1;
+    }
+    if (!p.onGround) due = std::min(due, kBeats - 1);
+    if (best.actor->info.actor != g_countActor) {
+        // A new enemy mid-countdown: start silently from where it is, so ticks never bunch up;
+        // the accent always sounds.
+        g_countActor = best.actor->info.actor;
+        g_beatsDone = std::min(due, kBeats - 1);
+        if (due < kBeats) return;
+    }
+    if (due <= g_beatsDone) return;
+    g_beatsDone = due;
+    if (due < kBeats) {
+        audio::cues::Play(audio::cues::CountTick(best.side * 0.7f, due));
+        return;
+    }
+    PlayAccent(best);
+    g_traceActor = g_countActor;
+    g_traceFrames = kTraceFrames;
+    if (LogCombat()) {
+        RT_LOGF(RT_TAG_A11Y, "combat: jump cue profile=%u kind=%d top=%.1f meet=%.1f takeoff=%.1f\n",
+                best.actor->info.profile, static_cast<int>(best.kind), best.top, best.meet, best.takeOff);
     }
 }
 
@@ -207,14 +262,17 @@ void Tick(const game::PlayerState& p) {
         RT_LOGF(RT_TAG_A11Y, "combat trace: mario %.1f,%.1f v %.2f,%.2f ground %d | actor %u %.1f,%.1f\n", p.pos.x,
                 p.pos.y, p.speed.x, p.speed.y, p.onGround ? 1 : 0, prof, ex, ey);
     }
+    // The countdown keeps running in the air (after a stomp bounce the next enemy is often
+    // already close); its accent waits for the landing, when a jump is possible again.
+    TickGround(p, near);
     if (p.onGround) {
         g_stompCued = 0;
-        TickGround(p, near);
     } else {
-        g_jumpCued.clear();
         TickAir(p, near);
     }
 }
+
+bool EnemyJumpWithin(float frames) { return g_nextTakeOff <= frames; }
 
 void TraceNearest() {
     g_traceActor = 0;
@@ -222,7 +280,8 @@ void TraceNearest() {
 }
 
 void Reset() {
-    g_jumpCued.clear();
+    g_countActor = 0;
+    g_beatsDone = 0;
     g_stompCued = 0;
 }
 

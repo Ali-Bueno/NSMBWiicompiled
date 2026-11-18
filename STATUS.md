@@ -27,7 +27,8 @@ line logged); **not yet played by a blind player.**
 | World map: world, node, cleared, "no path" | done | path directions are not listed |
 | Terrain cues (Kirby-style): wall hums by height + spoken height, ceiling, edges, platform above, air hum / pit / landing | wip | needs a listening test and tuning |
 | Enemy radar (signature per kind, stompable vs dangerous, boss drum), items, under-item bell, goal, pipes | wip | needs a listening test |
-| Combat timing: jump now / jump high / jump over, stomp and danger-below while falling | wip | arc-timed; autopilot stomps 8 enemies in 1-1, dies at a goomba pair |
+| Combat timing: countdown (3 clicks + chord) to jump now / high / over, stomp and danger-below while falling | wip | arc-timed; autopilot hits the first ? block, takes the mushroom path, stomps ~10 enemies in 1-1, dies around x~2786 (steps + goomba above) |
+| ? blocks (tile type bit 0x4) and items named on sight | wip | only "seta" (EN_ITEM param low byte 0x02) is identified |
 | Tile camera (I J K L, U, O) | wip | untested by a player |
 | F2-F4 info (status, progress, nearby with pipes) | done | |
 | Sound guide (Shift+F9): categories, Page Up/Down, Home/End, F9 replay | done | |
@@ -48,10 +49,10 @@ line logged); **not yet played by a blind player.**
 
 ## Next step
 
-Chained enemies: after a stomp bounce or with two enemies in a row the jump cue comes too late
-(autopilot death in 1-1 at x~2217). Options: cue from the air for a jump on landing, and use
-Mario's settled walking speed instead of his decelerating speed after a landing. Then the user's
-listening test, and tune `audio/cues.h`.
+The user's listening test of the new version (words for edges/platforms/items, wind for holes,
+jump countdown). Their feedback so far (2026-11-18): synthesized sounds were too alike, mushroom /
+hole / platform sounds unclear; they asked for short words plus game sounds, and wind for holes.
+Then the autopilot death around x~2786 in 1-1, and "escalón" being said too often on stairs.
 
 ## Review
 

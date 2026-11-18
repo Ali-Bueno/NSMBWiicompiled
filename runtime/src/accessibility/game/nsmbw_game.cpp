@@ -32,6 +32,7 @@ constexpr std::uint32_t kProfName = 0x08;   // fBase_c: mUniqueID 0, mParam 4, m
 constexpr std::uint32_t kGroupType = 0x0E;
 constexpr std::uint32_t kPos = 0xAC;
 constexpr std::uint32_t kPosDelta = 0xC4;
+constexpr std::uint32_t kParam = 0x04;  // fBase_c::mParam, after mUniqueID (f_base.hpp)
 constexpr std::uint32_t kCenterOffs = 0xD0;
 constexpr std::uint32_t kSpeed = 0xE8;
 constexpr std::uint32_t kVisible = 0x124;
@@ -215,6 +216,7 @@ bool ReadActor(std::uint32_t actor, ActorInfo& out) {
     TryVec3(actor + kPosDelta, out.delta);
     out.actor = actor;
     TryU16(actor + kProfName, out.profile);
+    TryU32(actor + kParam, out.param);
     TryU8(actor + kGroupType, out.group);
     TryU8(actor + kKind, out.kind);
     TryU8(actor + kLayer, out.layer);

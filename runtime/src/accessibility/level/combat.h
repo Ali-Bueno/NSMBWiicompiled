@@ -12,6 +12,8 @@ void Tick(const game::PlayerState& player);
 void Reset();
 // Debug (NSMBW_A11Y_LOG_COMBAT): trace Mario and the nearest actor for a while.
 void TraceNearest();
+// True when an enemy jump is due within this many frames (other jump cues wait for it).
+bool EnemyJumpWithin(float frames);
 
 }  // namespace a11y::level::combat
 

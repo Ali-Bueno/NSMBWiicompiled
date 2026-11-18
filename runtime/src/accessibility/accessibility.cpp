@@ -14,6 +14,7 @@
 #include "accessibility/game/nsmbw_game.h"
 #include "accessibility/hotkeys.h"
 #include "accessibility/level/actors.h"
+#include "accessibility/level/blocks.h"
 #include "accessibility/level/camera.h"
 #include "accessibility/level/combat.h"
 #include "accessibility/level/entrances.h"
@@ -56,6 +57,7 @@ void SilenceGameplayCues() {
     level::terrain::Stop();
     level::StopCues();
     level::combat::Reset();
+    level::blocks::Reset();
 }
 
 void RunAction(hotkeys::Action action, const game::PlayerState* player) {
@@ -206,6 +208,7 @@ void TickImpl() {
         level::TickCues(player, frameSec);
         level::entrances::TickCue(player, frameSec);
         level::combat::Tick(player);
+        level::blocks::Tick(player, frameSec);
         level::camera::Tick(frameSec);
     } else {
         SilenceGameplayCues();  // menus, pause, map, death: the cues go quiet

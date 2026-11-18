@@ -1,7 +1,10 @@
 #include "accessibility/level/actors.h"
+#include "accessibility/a11y_log.h"
+#include "accessibility/speech.h"
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 #include "accessibility/a11y_config.h"
 #include "accessibility/audio/cues.h"
@@ -31,6 +34,8 @@ constexpr float kItemRangeX = 8.0f;
 constexpr float kItemRangeY = 6.0f;
 constexpr float kUnderItemUnits = 7.0f;    // Kirby's 0.45 tile: lined up under it
 constexpr float kUnderItemMaxTiles = 10.0f;
+constexpr float kMovingUnits = 0.2f;
+constexpr std::uint16_t kProfileItem = 60;  // EN_ITEM  // world units per frame: faster is a moving item
 constexpr float kListRangeX = 14.0f;
 constexpr float kListRangeY = 8.0f;
 constexpr int kEnemyVoices = 4;  // the nearest few, staggered inside one radar pass
@@ -56,6 +61,7 @@ CueTimers g_timers;
 std::vector<NearbyActor> g_cached;
 int g_framesSinceScan = kScanEveryFrames;
 std::uint32_t g_underItem = 0;  // the item Mario was last lined up under
+std::set<std::uint32_t> g_announced;  // items already named
 
 int Round(float v) { return static_cast<int>(std::lround(v)); }
 
@@ -152,6 +158,15 @@ void TickEnemyRadar(const std::vector<NearbyActor>& near) {
     g_timers.enemyPass = voice > 0 ? cues::EnemyPassInterval(nearest) : 0.0f;
 }
 
+// The spoken name of an item. EN_ITEM's kind is the low byte of its mParam; only the values seen
+// in the logs are named ("item: profile=60 param=..." lines): 0x02 came out of 1-1's first
+// ? block for small Mario, a mushroom. Others say "item" until they are identified.
+std::string ItemName(const NearbyActor& n) {
+    constexpr std::uint32_t kItemMushroom = 0x02;
+    if (n.info.profile == kProfileItem && (n.info.param & 0xFFu) == kItemMushroom) return loc::Get("item_mushroom");
+    return n.phraseKey.empty() ? loc::Get("kind_item") : loc::Get(n.phraseKey);
+}
+
 void TickItems(const game::PlayerState& player, const std::vector<NearbyActor>& near) {
     namespace cues = audio::cues;
     const bool gameSounds = config::Get().gameSounds;
@@ -167,7 +182,22 @@ void TickItems(const game::PlayerState& player, const std::vector<NearbyActor>& 
                 g_timers.underItem = cues::kUnderItemRepeatSec;
             }
         }
-        if (g_timers.item > 0.0f || std::fabs(n.dx) > kItemRangeX || std::fabs(n.dy) > kItemRangeY) continue;
+        if (std::fabs(n.dx) > kItemRangeX || std::fabs(n.dy) > kItemRangeY) continue;
+        // A new item in range (one just out of a block, mostly): its name and where it is.
+        if (n.category == ActorCategory::Item && g_announced.insert(n.info.actor).second) {
+            speech::Say(ItemName(n) + ", " +
+                            Where(static_cast<int>(std::lround(n.dx)), static_cast<int>(std::lround(n.dy))),
+                        false);
+            RT_LOGF(RT_TAG_A11Y, "item: profile=%u param=0x%08X at %.1f,%.1f\n", n.info.profile,
+                    n.info.param, n.dx, n.dy);
+        }
+        if (g_timers.item > 0.0f) continue;
+        // A moving item (a mushroom sliding away) ticks fast so it can be chased.
+        if (std::fabs(n.info.delta.x) > kMovingUnits) {
+            cues::Play(cues::Item(cues::PanFor(n.dx, kItemRangeX), n.dy, 1.0f));
+            g_timers.item = cues::kMovingItemIntervalSec;
+            continue;
+        }
         if (gameSounds && game::sound::PlayAt(cues::kGameItemLabel, n.info.center.x, n.info.center.y)) {
             g_timers.item = cues::kGameItemIntervalSec;
         } else {
@@ -210,6 +240,7 @@ void StopCues() {
     g_cached.clear();
     g_timers = CueTimers{};
     g_underItem = 0;
+    g_announced.clear();
 }
 
 std::string DescribeNearby(const game::PlayerState& player) {

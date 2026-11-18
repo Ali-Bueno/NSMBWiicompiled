@@ -81,6 +81,7 @@ void ForEachActor(std::uint32_t anyActor, F&& visit);
 struct ActorInfo {
     std::uint32_t actor = 0;
     std::uint16_t profile = 0;
+    std::uint32_t param = 0;  // fBase_c::mParam: per-profile settings (an item's kind, ...)
     std::uint8_t group = 0;  // fBase_c::mGroupType: 2 actor, 3 enemy
     std::uint8_t kind = 0;   // dActor_c::mKind: 3 enemy
     std::uint8_t layer = 0;

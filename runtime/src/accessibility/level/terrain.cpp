@@ -8,6 +8,7 @@
 #include "accessibility/a11y_config.h"
 #include "accessibility/a11y_log.h"
 #include "accessibility/audio/cues.h"
+#include "accessibility/game/game_sound.h"
 #include "accessibility/localization.h"
 #include "accessibility/speech.h"
 #include "accessibility/test_autopilot.h"
@@ -198,8 +199,17 @@ Edge ClassifyColumn(const game::PlayerState& p, float x) {
     return Edge::None;
 }
 
-void PlayEdge(Edge e, int ahead) {
+// One or two words with each edge sound, so it does not have to be learnt.
+void SayEdge(Edge e) {
+    const char* key = e == Edge::Pit ? "edge_pit" : e == Edge::Drop ? "edge_drop" : e == Edge::StepUp ? "edge_step"
+                                                                                                 : "edge_lava";
+    speech::Say(loc::Get(key), false);
+}
+
+void PlayEdge(Edge e, int ahead, float x, float y, bool changedEdge) {
     const float pan = ahead * 0.5f;
+    if (e != Edge::None && changedEdge) SayEdge(e);
+    if (e == Edge::Hazard && config::Get().gameSounds && game::sound::PlayAt(cues::kGameLavaLabel, x, y)) return;
     switch (e) {
         case Edge::Pit: cues::Play(cues::EdgePit(pan)); break;
         case Edge::Drop: cues::Play(cues::EdgeDrop(pan)); break;
@@ -225,7 +235,7 @@ void TickEdges(const game::PlayerState& p, int ahead, float aheadWall) {
     const bool changed = found != g.lastEdge;
     const bool closer = found != Edge::None && column <= kUrgentColumns && g.lastEdgeColumn > kUrgentColumns;
     if (found != Edge::None && (changed || closer)) {
-        PlayEdge(found, ahead);
+        PlayEdge(found, ahead, p.pos.x + ahead * column * kTile, p.pos.y, changed);
         if (found == Edge::Pit && column <= kUrgentColumns) autopilot::Note(autopilot::Cue::PitAhead);
         if (found == Edge::StepUp && column <= 1) autopilot::Note(autopilot::Cue::StepAhead);
         if (LogTerrain()) RT_LOGF(RT_TAG_A11Y, "terrain: edge %d at column %d\n", int(found), column);
@@ -245,6 +255,7 @@ void TickPlatformAbove(const game::PlayerState& p, float frameSec) {
     }
     if (up != 0 && up != g.lastAboveUp && g.aboveTimer <= 0.0f) {
         cues::Play(cues::PlatformAbove(up));
+        speech::Say(loc::Get("platform_above"), false);
         g.aboveTimer = cues::kPlatformAboveCooldownSec;
     }
     g.lastAboveUp = up;
@@ -259,17 +270,11 @@ void TickAir(const game::PlayerState& p, float frameSec) {
     const float drop = (p.pos.y - h) / kTile;
     const bool pit = !ground || drop > kPitTiles * 2.0f;
     if (pit) {
-        service.Stop(audio::CueChannel::Ground);
         g.groundStep = -1;
-        g.pitTimer -= frameSec;
-        if (g.pitTimer <= 0.0f) {
-            cues::Play(cues::Pit());
-            g.pitTimer = cues::kPitRepeatSec;
-        }
+        service.SetSustained(audio::CueChannel::Ground, cues::PitWind());
         g.lastPit = true;
         return;
     }
-    g.pitTimer = 0.0f;
     if (g.lastPit) {
         cues::Play(cues::GroundAfterPit());
     } else if (g.haveLastGround && (h - g.lastGroundY) / kTile > kPlatformUnderRise) {
@@ -287,7 +292,6 @@ void TickAir(const game::PlayerState& p, float frameSec) {
 
 void TickGround(const game::PlayerState& p, int ahead, float aheadWall, float frameSec) {
     auto& service = audio::CueService::Instance();
-    if (g.wasAir && g.airSec >= kAirConfirmSec) cues::Play(cues::Landing());
     service.Stop(audio::CueChannel::Ground);
     g.airSec = 0.0f;
     g.groundStep = -1;
@@ -298,9 +302,26 @@ void TickGround(const game::PlayerState& p, int ahead, float aheadWall, float fr
     TickPlatformAbove(p, frameSec);
 }
 
+// Debug (NSMBW_A11Y_LOG_TERRAIN): the tile codes in the column above Mario, on change.
+void LogTilesAbove(const game::PlayerState& p) {
+    static std::uint32_t last[5] = {};
+    for (int dy = 1; dy <= 5; ++dy) {
+        const float y = p.pos.y + kTile * (dy + 0.5f);
+        const std::uint32_t type = game::UnitType(p.pos.x, y, p.layer);
+        const std::uint32_t kind = game::UnitKind(p.pos.x, y, p.layer);
+        const std::uint32_t key = type ^ (kind * 2654435761u);
+        if (key == last[dy - 1]) continue;
+        last[dy - 1] = key;
+        if (type != 0 || kind != 0) {
+            RT_LOGF(RT_TAG_A11Y, "tile above dy=%d x=%.0f type=0x%08X kind=0x%08X\n", dy, p.pos.x, type, kind);
+        }
+    }
+}
+
 }  // namespace
 
 void Tick(const game::PlayerState& p, float frameSec) {
+    if (LogTerrain()) LogTilesAbove(p);
     if (!config::Get().terrainCues) {
         Stop();
         return;

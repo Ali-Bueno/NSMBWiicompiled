@@ -9,7 +9,7 @@
 // when the variable is unset.
 namespace a11y::autopilot {
 
-enum class Cue { JumpNow, JumpHigh, JumpOver, PitAhead, StepAhead, WallKnock };
+enum class Cue { JumpNow, JumpHigh, JumpOver, PitAhead, StepAhead, WallKnock, UnderBlock };
 
 bool Enabled();
 void Note(Cue cue);

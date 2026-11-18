@@ -24,10 +24,13 @@ constexpr int kReleaseFrames = 2;        // a new jump needs the button released
 // A player reacts to a sound about 0.2 s after it; the autopilot waits as long, so a run it wins
 // is one a person could win too.
 constexpr int kReactionFrames = 12;
+// An enemy's jump cue ends a countdown, so a player presses on the beat: allow a small error.
+constexpr int kOnBeatFrames = 2;
 int g_pendingIn = -1;                    // frames until the pending reaction; -1 none
 int g_pendingHold = 0, g_pendingRun = 0;
 const char* g_pendingWhy = "";
 bool g_pendingEnemy = false;
+int g_stopLeft = 0;                      // frames without pressing right
 
 std::atomic<std::uint32_t> g_bits{0};
 int g_jumpLeft = 0;
@@ -38,7 +41,7 @@ void StartJump(int frames, int runFrames, const char* why, bool enemy) {
     // An enemy's cue outranks a pending terrain jump: jumping at a step into an enemy is worse.
     if (g_pendingIn >= 0 && !(enemy && !g_pendingEnemy)) return;
     g_pendingEnemy = enemy;
-    g_pendingIn = kReactionFrames;
+    g_pendingIn = enemy ? kOnBeatFrames : kReactionFrames;
     g_pendingHold = frames;
     g_pendingRun = runFrames;
     g_pendingWhy = why;
@@ -46,7 +49,15 @@ void StartJump(int frames, int runFrames, const char* why, bool enemy) {
 }
 
 void Press(int frames, int runFrames, const char* why) {
-    if (g_jumpLeft > 0 || g_releaseLeft > 0) return;
+    if (g_jumpLeft > 0 || g_releaseLeft > 0) {
+        // Still holding an earlier jump: a person lets go and presses again for an enemy.
+        if (g_pendingEnemy) {
+            g_jumpLeft = 0;
+            g_releaseLeft = kReleaseFrames;
+            g_pendingIn = kReleaseFrames;
+        }
+        return;
+    }
     g_jumpLeft = frames;
     level::combat::TraceNearest();
     if (runFrames > g_runLeft) g_runLeft = runFrames;
@@ -72,6 +83,9 @@ void Note(Cue cue) {
         case Cue::PitAhead: StartJump(kPitHoldFrames, kPitRunFrames, "pit", false); break;
         case Cue::StepAhead:
         case Cue::WallKnock: StartJump(kHighHoldFrames, 0, "wall", false); break;
+        case Cue::UnderBlock:
+            StartJump(kHighHoldFrames, 0, "block", false);
+            break;
     }
 }
 
@@ -81,10 +95,12 @@ void Tick(bool inLevel) {
         g_bits = 0;
         g_jumpLeft = g_runLeft = g_releaseLeft = 0;
         g_pendingIn = -1;
+        g_stopLeft = 0;
         return;
     }
     if (g_pendingIn >= 0 && g_pendingIn-- == 0) Press(g_pendingHold, g_pendingRun, g_pendingWhy);
-    std::uint32_t bits = game::kScreenRight;
+    std::uint32_t bits = g_stopLeft > 0 ? 0u : game::kScreenRight;
+    if (g_stopLeft > 0) --g_stopLeft;
     if (g_jumpLeft > 0) {
         bits |= kJumpButton;
         if (--g_jumpLeft == 0) g_releaseLeft = kReleaseFrames;

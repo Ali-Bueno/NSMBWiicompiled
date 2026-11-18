@@ -41,6 +41,7 @@ struct LevelState {
     int starCoins[kStarCoins] = {kNoCollector, kNoCollector, kNoCollector};
     int water = -1;
     float startX = 0.0f;
+    std::string demo;
     std::uint8_t area = 0xFF;
 };
 LevelState g_level;
@@ -84,6 +85,15 @@ void OnSceneChange(std::uint32_t previous, std::uint32_t scene) {
     speech::Say(text, true);
 }
 
+// Cutscene states worth a word (the state names are the game's own, decomp d_a_player_base.hpp).
+const char* DemoPhrase(const std::string& state) {
+    if (state.find("StateID_DemoGoal") != std::string::npos) return "goal";
+    if (state.find("StateID_DemoInDokan") != std::string::npos) return "demo_pipe";
+    if (state.find("StateID_DemoInDoor") != std::string::npos) return "demo_door";
+    if (state.find("StateID_DemoInVine") != std::string::npos) return "demo_vine";
+    return nullptr;
+}
+
 void TickLevel(const game::PlayerState& p) {
     if (!g_level.active) {
         g_level = LevelState{};
@@ -91,6 +101,7 @@ void TickLevel(const game::PlayerState& p) {
         g_level.powerup = p.powerup;
         g_level.startX = p.pos.x;
         g_level.area = game::AreaNo();
+        g_level.demo = p.demoStateName;
         ReadStarCoins(g_level.starCoins);
         return;
     }
@@ -105,6 +116,11 @@ void TickLevel(const game::PlayerState& p) {
     const bool out = game::PlayerOutOfPlay(p.actor);
     if (out && !g_level.outOfPlay) speech::Say(loc::Get("dead"), true);
     g_level.outOfPlay = out;
+
+    if (p.demoStateName != g_level.demo) {
+        g_level.demo = p.demoStateName;
+        if (const char* key = DemoPhrase(p.demoStateName)) speech::Say(loc::Get(key), false);
+    }
 
     const int seconds = game::TimerSeconds();
     if (seconds > kHurrySeconds) g_level.hurrySaid = false;

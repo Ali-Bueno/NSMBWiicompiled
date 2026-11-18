@@ -6,6 +6,11 @@
 
 **New Super Mario Bros. Wii as a native Windows game.** Play in high resolution and widescreen, at up to 180 fps, with keyboard or any gamepad, Dolphin HD texture packs and up to four players. No emulator needed.
 
+> **Accessibility fork.** This fork adds a screen reader (via PRISM) and audio cues so the game can
+> be played without seeing the screen: menus, the world map and levels are spoken and sonified.
+> See [docs/accessibility/README.md](docs/accessibility/README.md). Settings and saves are portable:
+> they live in `UserData\` next to the game.
+
 <p align="center">
   <img src="docs/images/hero.jpg" alt="The title screen in widescreen at high resolution" width="800">
 </p>

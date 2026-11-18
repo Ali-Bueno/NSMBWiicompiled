@@ -368,6 +368,7 @@ void RunMovieSkip() {
 } // namespace
 
 extern "C" void NsmbwAccessibilityGameTick(); // runtime/src/accessibility/accessibility.cpp
+extern "C" void NsmbwA11yInputSample(uint32_t hold, uint32_t trig);
 
 extern "C" int32_t NsmbwKpadRead_801ED500(uint32_t chan, uint32_t samples, uint32_t num, uint32_t errPtr, uint32_t isEx)
 {
@@ -388,6 +389,7 @@ extern "C" int32_t NsmbwKpadRead_801ED500(uint32_t chan, uint32_t samples, uint3
             return 0;
         }
         const RemoteState& r = g_remotes[chan];
+        if (chan == 0) NsmbwA11yInputSample(r.hold, r.trig); // what the game reads (accessibility.cpp)
         WriteZeroedStatus(samples, 0 /* WPAD_ERR_OK */);
         Memory::Write32(samples + 0x0u, r.hold);
         Memory::Write32(samples + 0x4u, r.trig);

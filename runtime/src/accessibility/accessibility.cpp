@@ -128,9 +128,9 @@ void LogPlayer(const game::PlayerState& p) {
     const bool wl = game::WallBetween(p.pos.x, p.pos.x - 96.0f, p.pos.y + 8.0f, p.layer, wallL);
     RT_LOGF(RT_TAG_A11Y,
             "player: pos (%.1f, %.1f) speed (%.2f, %.2f) dir %u layer %u power %d star %d type %d bc %08x "
-            "foot %d state %s | ground %d %.1f wallR %d %.1f wallL %d %.1f unit %08x kind %08x lives %d time %d\n",
+            "foot %d state %s demo %s | ground %d %.1f wallR %d %.1f wallL %d %.1f unit %08x kind %08x lives %d time %d\n",
             p.pos.x, p.pos.y, p.speed.x, p.speed.y, p.direction, p.layer, p.powerup, p.starTimer, p.playerType,
-            p.bgFlags, p.onGround ? 1 : 0, p.stateName.c_str(), g ? 1 : 0, ground, wr ? 1 : 0, wallR, wl ? 1 : 0,
+            p.bgFlags, p.onGround ? 1 : 0, p.stateName.c_str(), p.demoStateName.c_str(), g ? 1 : 0, ground, wr ? 1 : 0, wallR, wl ? 1 : 0,
             wallL, game::UnitType(p.pos.x, p.pos.y - 4.0f, p.layer), game::UnitKind(p.pos.x, p.pos.y - 4.0f, p.layer),
             game::Lives(p.playerType), game::TimerSeconds());
     int listed = 0;
@@ -163,13 +163,18 @@ void TickImpl() {
     speech::DrainPosted();
     while (const auto action = hotkeys::Take()) RunAction(*action, havePlayer ? &player : nullptr);
 
+    static bool wasTitle = false;
+    const bool title = game::OnTitleScreen();
+    if (title && !wasTitle) speech::Say(loc::Get("title_screen"), true);
+    wasTitle = title;
+
     ui::menu::Tick();
     level::monitor::Tick(havePlayer ? &player : nullptr);
     map::Tick();
 
     if (sound_guide::Tick(frameSec)) {
         SilenceGameplayCues();
-    } else if (havePlayer && !game::PlayerOutOfPlay(player.actor)) {
+    } else if (havePlayer && !game::PlayerOutOfPlay(player.actor) && game::InNormalPlay(player)) {
         level::terrain::Tick(player, frameSec);
         level::TickCues(player, frameSec);
         level::entrances::TickCue(player, frameSec);
@@ -246,6 +251,10 @@ extern "C" std::uint32_t NsmbwA11yGameLanguage() {
     if (code == "de") return kGerman;
     if (code == "it") return kItalian;
     return kEnglish;
+}
+
+extern "C" void NsmbwA11yInputSample(std::uint32_t hold, std::uint32_t trig) {
+    a11y::game::RecordInput(hold, trig);
 }
 
 extern "C" void NsmbwA11yOnCursorPane(std::uint32_t pane, std::uint32_t slot) {

@@ -57,7 +57,9 @@ $required = @(
     'dsp_coef.bin',                             # AX mixer resampling table (ax_mix.cpp)
     'initial_pipeline_cache.db',                # seed shader recipes (merge_pipeline_cache.py)
     'initial_texture_preload.txt',              # HD-pack files per scene (merge_texture_preload.py)
-    'wii_bootstrap\shared2\wc24\nwc24msg.cfg'   # first-run NAND seed (nand_path.h)
+    'wii_bootstrap\shared2\wc24\nwc24msg.cfg',  # first-run NAND seed (nand_path.h)
+    'prism.dll',                                # screen reader output (accessibility/prism_runtime.cpp)
+    'accessibility_lang\es.ini'                 # spoken phrases (accessibility/localization.cpp)
 )
 $missing = $required | Where-Object { -not (Test-Path (Join-Path $B $_)) }
 if ($missing) { throw "build_nsmbw is missing: $($missing -join ', ') - rebuild NSMBWCompiled first." }
@@ -102,6 +104,7 @@ if (Test-Path $usaCompatDll) {
     Write-Warning "no USA compat DLL at $usaCompatDll - USA discs need AVX2 with this package"
 }
 Copy-Item -Recurse (Join-Path $B 'wii_bootstrap') $pkg
+Copy-Item -Recurse (Join-Path $B 'accessibility_lang') $pkg
 Copy-Item (Join-Path $tools 'PLAYING.txt') $pkg
 
 if ($Private) {

@@ -10,6 +10,8 @@
 
 #include "accessibility/a11y_config.h"
 #include "accessibility/a11y_log.h"
+#include "accessibility/game/nsmbw_game.h"
+#include "accessibility/localization.h"
 #include "accessibility/speech.h"
 #include "accessibility/ui/lyt.h"
 
@@ -139,7 +141,11 @@ void Tick() {
     if (!config::Get().menuSpeech) return;
     std::string text = item;
     if (newMenu) {
-        const std::string header = HeaderText(root, item);
+        std::string header = HeaderText(root, item);
+        // The pause window has no title text of its own; the game is stopped inside a level.
+        if (header.empty() && game::InScene(game::Scene::Stage) && !game::OnTitleScreen() && game::GamePaused()) {
+            header = loc::Get("paused");
+        }
         if (!header.empty()) {
             const char last = header.back();
             const bool punctuated = last == '.' || last == '?' || last == '!' || last == ':';

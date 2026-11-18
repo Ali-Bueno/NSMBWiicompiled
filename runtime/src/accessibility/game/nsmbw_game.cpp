@@ -25,7 +25,7 @@ constexpr std::uint32_t kStageAreaNo = 0x120F;  // mCurrAreaNo: dScene_c (0x74) 
 constexpr std::uint8_t kGameModeTitle = 2;
 constexpr std::uint8_t kGameModeTitleReplay = 3;
 
-// dActor_c / daPlBase_c member offsets: reference/nsmbw-structures.md.
+// dActor_c / daPlBase_c member offsets: docs/accessibility/nsmbw-structures.md.
 constexpr std::uint32_t kProfName = 0x08;   // fBase_c: mUniqueID 0, mParam 4, mProfName 8; vtable at 0x60
 constexpr std::uint32_t kGroupType = 0x0E;
 constexpr std::uint32_t kPos = 0xAC;
@@ -42,6 +42,9 @@ constexpr std::uint32_t kPowerup = 0x1090;
 constexpr std::uint32_t kPlayerType = 0x14D4;
 constexpr std::uint32_t kStateId = 0x1498;  // mStateMgr's current sFStateID_c*
 constexpr std::uint32_t kStateIdName = 0x04;
+// mDemoStateMgr sits 0x4C before mStateMgr (its 0x3C bytes, three ints and a bool; decomp
+// d_a_player_base.hpp:1272-1280), so its current state is at 0x1418 + 0x34.
+constexpr std::uint32_t kDemoStateId = 0x144C;
 
 // dBc_c::mFlags masks (d_bc.hpp).
 constexpr std::uint32_t kBcWallR = 0x00000015u;
@@ -132,12 +135,30 @@ bool ReadPlayer(std::uint32_t actor, PlayerState& out) {
     out.onGround = (out.bgFlags & kBcFoot) != 0;
     out.wallLeft = (out.bgFlags & kBcWallL) != 0;
     out.wallRight = (out.bgFlags & kBcWallR) != 0;
-    out.stateName.clear();
-    std::uint32_t state = 0, name = 0;
-    if (TryPointer(actor + kStateId, state) && TryPointer(state + kStateIdName, name)) {
-        out.stateName = ReadCString(name, kStateNameMax);
-    }
+    const auto stateName = [&](std::uint32_t slot) {
+        std::uint32_t state = 0, name = 0;
+        if (TryPointer(actor + slot, state) && TryPointer(state + kStateIdName, name)) return ReadCString(name, kStateNameMax);
+        return std::string();
+    };
+    out.stateName = stateName(kStateId);
+    out.demoStateName = stateName(kDemoStateId);
     return true;
+}
+
+namespace {
+std::uint32_t g_inputHold = 0, g_inputTrig = 0;
+constexpr char kDemoNone[] = "StateID_DemoNone";
+}  // namespace
+
+void RecordInput(std::uint32_t hold, std::uint32_t trig) {
+    g_inputHold = hold;
+    g_inputTrig = trig;
+}
+std::uint32_t InputTrig() { return g_inputTrig; }
+std::uint32_t InputHold() { return g_inputHold; }
+
+bool InNormalPlay(const PlayerState& player) {
+    return player.demoStateName.empty() || player.demoStateName.find(kDemoNone) != std::string::npos;
 }
 
 bool PlayerOutOfPlay(std::uint32_t actor) {

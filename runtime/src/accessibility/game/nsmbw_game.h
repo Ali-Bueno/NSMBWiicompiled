@@ -7,7 +7,7 @@
 #include "accessibility/guest_read.h"
 
 // The engine adapter: every NSMBW address and struct offset the mod reads lives behind these
-// accessors. Offsets and their derivation: reference/nsmbw-structures.md.
+// accessors. Offsets and their derivation: docs/accessibility/nsmbw-structures.md.
 namespace a11y::game {
 
 // Scene profile IDs (fProf::PROFILE_NAME_e) as reported by createRoot.
@@ -47,12 +47,27 @@ struct PlayerState {
     bool onGround = false;
     bool wallLeft = false, wallRight = false;
     std::string stateName;       // the player's state machine state, e.g. "StateID_Jump"
+    std::string demoStateName;   // the cutscene state machine: "StateID_DemoNone" while playing
 };
 
 // Player `slot` (0 = player 1), through the game's own daPyMng_c::getPlayer.
 std::uint32_t PlayerActor(int slot);
 bool ReadPlayer(std::uint32_t actor, PlayerState& out);
 bool PlayerOutOfPlay(std::uint32_t actor);  // dead or in a bubble
+
+// Not in a cutscene (pipe, door, goal): the cues only make sense while the player controls Mario.
+bool InNormalPlay(const PlayerState& player);
+
+// Player 1's Wii Remote buttons as the game received them on the last frame (sideways remote:
+// the screen directions are the remote's rotated d-pad).
+void RecordInput(std::uint32_t hold, std::uint32_t trig);
+std::uint32_t InputTrig();
+std::uint32_t InputHold();
+inline constexpr std::uint32_t kScreenLeft = 1u << 3;   // WPAD up (nsmbw_controls.cpp)
+inline constexpr std::uint32_t kScreenRight = 1u << 2;  // WPAD down
+inline constexpr std::uint32_t kScreenUp = 1u << 1;     // WPAD right
+inline constexpr std::uint32_t kScreenDown = 1u << 0;   // WPAD left
+inline constexpr std::uint32_t kScreenDirections = kScreenLeft | kScreenRight | kScreenUp | kScreenDown;
 
 int Lives(int playerType);
 int PlayerTypeOfSlot(int slot);  // daPyMng_c::mPlayerType

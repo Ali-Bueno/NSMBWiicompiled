@@ -12,6 +12,7 @@ line logged); **not yet played by a blind player.**
 | Framework | Accessibility compiled into the game DLL (`runtime/src/accessibility/`); hooks are native overrides at guest addresses (`projects/nsmbw/native/nsmbw_a11y_*.cpp`) plus a per-frame call from the player-1 `KPADRead` override |
 | Speech | PRISM `prism.dll`, loaded at runtime from the exe folder (ported from the Mario Kart Wii accessibility fork) |
 | Fork | `Ali-Bueno/NSMBWiicompiled`, branch `accessibility`; upstream `ral1009/NSMBWiicompiled` (remote `upstream`) |
+| Play folder | `D:\code\new super mario bros wii accessibility\NSMBW Accesible\` (release build + extracted disc, portable, `LEEME.txt`); refresh it by copying `build_release\NSMBWCompiled-P1.dll`, `NSMBWCompiled.exe` and `accessibility_lang\` |
 | Reference | `D:\code\decompiled games\NSMBW-Decomp` (structs, profile IDs); `D:\code\wiicompiled\KirbyRtDLAccess` (design ideas) |
 
 ## Sections
@@ -29,7 +30,7 @@ line logged); **not yet played by a blind player.**
 | F2-F4 info (status, progress, nearby with pipes) | done | |
 | Sound guide (Shift+F9) | done | |
 | Toad-house minigames, bosses' patterns, Super Guide | todo | |
-| Using the game's own sound effects as cues | todo | all cues are synthesized for now |
+| Game's own sound effects as cues | done | pipes, items, map "no path", volume; labels resolved by the sound archive (`game/game_sound.*`) |
 
 ## Code map
 
@@ -45,6 +46,14 @@ line logged); **not yet played by a blind player.**
 
 Play-test with the screen reader: 1-1 to the goal with the cues on, then tune `audio/cues.h`
 (levels, wall tick rate, which edges to announce) from what the player reports.
+
+## Review
+
+2026-11-18 adversarial review (11 findings) fixed in `0de0fc7`: shutdown order, sound guide
+silencing, level state across pauses, bounded pane walks, no collision query before `dBg_c`
+exists, masked bool results, retried sound lookups, hotkeys off in the options menu, rebind result
+spoken, portable fallback when the exe folder is read-only. Not fixed: non-Windows builds of
+`runtime/src/accessibility` (Windows-only mod).
 
 ## Known issues
 
